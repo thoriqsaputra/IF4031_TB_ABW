@@ -1,4 +1,4 @@
-module report_service
+module user_service
 
 go 1.25.5
 

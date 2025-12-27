@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/driver/postgres"
@@ -16,7 +17,10 @@ func ConnectDB() {
 	var err error
 
 	// pindahin somewhere secure maybe?
-	dsn := "host=localhost user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable"
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		dsn = "host=localhost user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable"
+	}
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
