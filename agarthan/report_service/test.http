@@ -2,8 +2,8 @@ POST http://localhost:3001/reports HTTP/1.1
 content-type: application/json
 
 {
-  "title": "Broken streetlight",
-  "description": "The streetlight on 5th Ave is out at night.",
+  "title": "Broken headlight",
+  "description": "The headlight on 5th Ave is out at night.",
   "is_public": true,
   "is_anon": false,
   "location": "5th Ave and Pine St",

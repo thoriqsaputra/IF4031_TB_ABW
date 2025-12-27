@@ -43,6 +43,11 @@ type Report struct {
 	ReportCategory ReportCategory `gorm:"foreignKey:ReportCategoryID"`
 }
 
+type ReportRequestMessage struct {
+	RequestID string `json:"request_id"`
+	Report    Report `json:"report"`
+}
+
 type Upvote struct {
 	UpvoteID  uint      `gorm:"primaryKey;column:upvote_id" json:"upvote_id"`
 	CreatedAt time.Time `json:"created_at"`

@@ -17,9 +17,12 @@ services:
     environment:
       DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      KAFKA_BROKERS: kafka:19092
+      KAFKA_TOPIC: submission.events
     depends_on:
       - postgres
       - rabbitmq
+      - kafka
     ports:
       - "3001:3001"
 
@@ -30,9 +33,15 @@ services:
     environment:
       DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      KAFKA_BROKERS: kafka:19092
+      KAFKA_TOPIC: submission.events
     depends_on:
-      - postgres
-      - rabbitmq
+      postgres:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -63,6 +72,12 @@ services:
       KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   postgres:
     image: postgres:16-alpine
