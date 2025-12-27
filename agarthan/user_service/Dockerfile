@@ -2,7 +2,7 @@ FROM golang:1.25-alpine AS build
 
 WORKDIR /src
 
-COPY go.work ./
+COPY agarthan/user_service/go.work ./agarthan/user_service/
 COPY agarthan/user_service/go.mod agarthan/user_service/go.sum ./agarthan/user_service/
 COPY pkg/models/go.mod ./pkg/models/
 
