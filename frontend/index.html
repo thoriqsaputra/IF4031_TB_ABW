@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Report Service Test Bench</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Space+Mono:wght@400;700&family=Work+Sans:wght@400;600&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --bg-1: #f7f0e6;
+                --bg-2: #f2e4d5;
+                --ink: #1f1a16;
+                --muted: #6d5f54;
+                --panel: #fff9f2;
+                --panel-2: #fef3e6;
+                --line: #e1cbb6;
+                --accent: #e35d3a;
+                --accent-2: #3b8b7c;
+                --warn: #b85d00;
+                --good: #1f7a57;
+                --bad: #9f2d24;
+                --shadow: 0 18px 45px rgba(35, 20, 10, 0.16);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: "Work Sans", "Segoe UI", sans-serif;
+                color: var(--ink);
+                background: radial-gradient(circle at top left, rgba(227, 93, 58, 0.12), transparent 45%),
+                    radial-gradient(circle at 30% 20%, rgba(59, 139, 124, 0.18), transparent 40%),
+                    linear-gradient(135deg, var(--bg-1), var(--bg-2));
+            }
+
+            body::before,
+            body::after {
+                content: "";
+                position: fixed;
+                border-radius: 999px;
+                filter: blur(0.5px);
+                z-index: 0;
+                opacity: 0.4;
+                animation: float 14s ease-in-out infinite;
+            }
+
+            body::before {
+                width: 220px;
+                height: 220px;
+                background: rgba(59, 139, 124, 0.2);
+                top: 8%;
+                right: 10%;
+            }
+
+            body::after {
+                width: 280px;
+                height: 280px;
+                background: rgba(227, 93, 58, 0.15);
+                bottom: 5%;
+                left: 5%;
+                animation-delay: -6s;
+            }
+
+            main {
+                position: relative;
+                z-index: 1;
+                max-width: 1080px;
+                margin: 0 auto;
+                padding: 32px 20px 48px;
+                display: grid;
+                gap: 20px;
+                animation: rise 700ms ease-out both;
+            }
+
+            header {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                padding: 22px 24px;
+                border-radius: 20px;
+                background: var(--panel);
+                box-shadow: var(--shadow);
+                border: 1px solid rgba(225, 203, 182, 0.7);
+            }
+
+            header h1 {
+                margin: 0;
+                font-family: "Fraunces", "Georgia", serif;
+                font-size: clamp(2rem, 3.8vw, 2.9rem);
+                letter-spacing: -0.02em;
+            }
+
+            header p {
+                margin: 0;
+                color: var(--muted);
+                font-size: 0.98rem;
+            }
+
+            .config {
+                display: grid;
+                gap: 12px;
+                align-items: end;
+            }
+
+            .config-row {
+                display: grid;
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            }
+
+            label {
+                display: grid;
+                gap: 6px;
+                font-size: 0.86rem;
+                color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+            }
+
+            input,
+            select,
+            textarea {
+                font-family: "Work Sans", "Segoe UI", sans-serif;
+                font-size: 0.96rem;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid var(--line);
+                background: #fff;
+                color: var(--ink);
+                transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            }
+
+            input:focus,
+            select:focus,
+            textarea:focus {
+                outline: none;
+                border-color: var(--accent);
+                box-shadow: 0 0 0 3px rgba(227, 93, 58, 0.2);
+            }
+
+            textarea {
+                min-height: 110px;
+                resize: vertical;
+            }
+
+            .grid {
+                display: grid;
+                gap: 18px;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+
+            .card {
+                padding: 20px;
+                border-radius: 18px;
+                background: var(--panel);
+                border: 1px solid rgba(225, 203, 182, 0.7);
+                box-shadow: var(--shadow);
+                display: grid;
+                gap: 14px;
+                animation: rise 700ms ease-out both;
+            }
+
+            .card:nth-child(2) {
+                animation-delay: 120ms;
+            }
+
+            .card h2 {
+                margin: 0;
+                font-size: 1.2rem;
+                letter-spacing: -0.01em;
+            }
+
+            .meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .pill {
+                font-family: "Space Mono", monospace;
+                background: var(--panel-2);
+                color: var(--muted);
+                border-radius: 999px;
+                padding: 6px 12px;
+                font-size: 0.78rem;
+                border: 1px solid rgba(225, 203, 182, 0.9);
+            }
+
+            button {
+                cursor: pointer;
+                border: none;
+                border-radius: 999px;
+                padding: 10px 16px;
+                font-weight: 600;
+                background: var(--accent);
+                color: #fff;
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+                box-shadow: 0 10px 20px rgba(227, 93, 58, 0.2);
+            }
+
+            button.secondary {
+                background: #fff;
+                color: var(--ink);
+                border: 1px solid var(--line);
+                box-shadow: none;
+            }
+
+            button.ghost {
+                background: transparent;
+                color: var(--muted);
+                border: 1px dashed rgba(109, 95, 84, 0.5);
+                box-shadow: none;
+            }
+
+            button:hover {
+                transform: translateY(-1px);
+            }
+
+            .row {
+                display: grid;
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            }
+
+            .checks {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 14px;
+                font-size: 0.92rem;
+                color: var(--muted);
+            }
+
+            .checks label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                text-transform: none;
+                letter-spacing: 0;
+                font-size: 0.92rem;
+                color: var(--muted);
+            }
+
+            .status {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.9rem;
+                color: var(--muted);
+            }
+
+            .status-dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #c1b0a0;
+            }
+
+            .status[data-state="open"] .status-dot {
+                background: var(--good);
+                box-shadow: 0 0 0 6px rgba(31, 122, 87, 0.15);
+            }
+
+            .status[data-state="error"] .status-dot {
+                background: var(--bad);
+                box-shadow: 0 0 0 6px rgba(159, 45, 36, 0.12);
+            }
+
+            .status[data-state="connecting"] .status-dot {
+                background: var(--warn);
+                box-shadow: 0 0 0 6px rgba(184, 93, 0, 0.12);
+            }
+
+            .output {
+                padding: 14px;
+                background: #11100f;
+                border-radius: 12px;
+                color: #f2ece7;
+                font-family: "Space Mono", monospace;
+                font-size: 0.84rem;
+                overflow: auto;
+                min-height: 90px;
+            }
+
+            .log {
+                display: grid;
+                gap: 8px;
+                max-height: 240px;
+                overflow: auto;
+                padding-right: 6px;
+            }
+
+            .log-line {
+                display: grid;
+                gap: 4px;
+                padding: 10px 12px;
+                border-radius: 12px;
+                background: #fff;
+                border: 1px solid rgba(225, 203, 182, 0.9);
+                font-family: "Space Mono", monospace;
+                font-size: 0.78rem;
+            }
+
+            .log-line.ok {
+                border-color: rgba(31, 122, 87, 0.4);
+                background: rgba(31, 122, 87, 0.08);
+            }
+
+            .log-line.error {
+                border-color: rgba(159, 45, 36, 0.4);
+                background: rgba(159, 45, 36, 0.08);
+            }
+
+            .log-line .time {
+                color: rgba(109, 95, 84, 0.8);
+                font-size: 0.7rem;
+            }
+
+            @keyframes rise {
+                from {
+                    opacity: 0;
+                    transform: translateY(12px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @keyframes float {
+                0%,
+                100% {
+                    transform: translate3d(0, 0, 0);
+                }
+                50% {
+                    transform: translate3d(0, -18px, 0);
+                }
+            }
+
+            @media (max-width: 720px) {
+                header {
+                    padding: 18px;
+                }
+
+                .card {
+                    padding: 18px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <div>
+                    <h1>Report Service Test Bench</h1>
+                    <p>Send a report payload to report_service and wait for notifications from notification_service.</p>
+                </div>
+                <div class="config">
+                    <div class="config-row">
+                        <label>
+                            Report Service URL
+                            <input id="report-base-url" type="url" value="http://localhost:3001">
+                        </label>
+                        <label>
+                            Notification Service URL
+                            <input id="notification-base-url" type="url" value="http://localhost:3002">
+                        </label>
+                        <label>
+                            Notification Path
+                            <input id="notification-path" type="text" value="/notifications/wait">
+                        </label>
+                        <label>
+                            Last Request ID
+                            <input id="last-request-id" type="text" placeholder="Waiting for POST" readonly>
+                        </label>
+                    </div>
+                    <div class="meta">
+                        <span class="pill">POST /reports</span>
+                        <span class="pill">WAIT /notifications/wait</span>
+                        <button id="fetch-reports" class="secondary" type="button">GET /reports</button>
+                    </div>
+                </div>
+            </header>
+
+            <section class="grid">
+                <div class="card">
+                    <h2>Create report</h2>
+                    <form id="report-form">
+                        <label>
+                            Title
+                            <input id="title" type="text" value="Broken street light" required>
+                        </label>
+                        <label>
+                            Description
+                            <textarea id="description" required>Street light flickers after midnight on Pine Avenue.</textarea>
+                        </label>
+                        <div class="row">
+                            <label>
+                                Location
+                                <input id="location" type="text" value="Pine Avenue">
+                            </label>
+                            <label>
+                                Severity
+                                <select id="severity">
+                                    <option value="low">low</option>
+                                    <option value="medium" selected>medium</option>
+                                    <option value="high">high</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="row">
+                            <label>
+                                Category ID
+                                <input id="category-id" type="number" min="1" value="1">
+                            </label>
+                            <label>
+                                User ID
+                                <input id="user-id" type="number" min="1" value="1">
+                            </label>
+                        </div>
+                        <div class="checks">
+                            <label>
+                                <input id="is-public" type="checkbox" checked>
+                                Public report
+                            </label>
+                            <label>
+                                <input id="is-anon" type="checkbox">
+                                Anonymous reporter
+                            </label>
+                            <label>
+                                <input id="auto-wait" type="checkbox" checked>
+                                Auto-wait after submit
+                            </label>
+                        </div>
+                        <div class="meta">
+                            <button type="submit">Send report</button>
+                            <button id="clear-response" class="ghost" type="button">Clear response</button>
+                        </div>
+                    </form>
+                    <div>
+                        <div class="status">
+                            <span>Response</span>
+                        </div>
+                        <pre id="response" class="output">{}</pre>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Notification wait</h2>
+                    <div class="status" id="notification-status" data-state="closed">
+                        <span class="status-dot"></span>
+                        <span>Idle</span>
+                    </div>
+                    <div class="checks">
+                        <label>
+                            <input id="attach-request-id" type="checkbox" checked>
+                            Append request_id to wait URL
+                        </label>
+                    </div>
+                    <div class="meta">
+                        <button id="wait-once" type="button">Wait once</button>
+                        <button id="start-auto-wait" class="secondary" type="button">Start auto-wait</button>
+                        <button id="stop-wait" class="secondary" type="button">Stop</button>
+                        <button id="clear-log" class="ghost" type="button">Clear log</button>
+                    </div>
+                    <div>
+                        <div class="status">
+                            <span>Last notification</span>
+                        </div>
+                        <pre id="notification-response" class="output">{}</pre>
+                    </div>
+                    <div class="log" id="notification-log"></div>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            const reportBaseUrlInput = document.getElementById("report-base-url");
+            const notificationBaseUrlInput = document.getElementById("notification-base-url");
+            const notificationPathInput = document.getElementById("notification-path");
+            const lastRequestIdInput = document.getElementById("last-request-id");
+            const attachRequestIdInput = document.getElementById("attach-request-id");
+            const autoWaitInput = document.getElementById("auto-wait");
+            const statusEl = document.getElementById("notification-status");
+            const logEl = document.getElementById("notification-log");
+            const responseEl = document.getElementById("response");
+            const notificationResponseEl = document.getElementById("notification-response");
+            const waitOnceBtn = document.getElementById("wait-once");
+            const startAutoWaitBtn = document.getElementById("start-auto-wait");
+            const stopWaitBtn = document.getElementById("stop-wait");
+            const clearLogBtn = document.getElementById("clear-log");
+            const clearResponseBtn = document.getElementById("clear-response");
+            const fetchReportsBtn = document.getElementById("fetch-reports");
+            const form = document.getElementById("report-form");
+
+            let lastRequestId = "";
+            let autoWaitEnabled = false;
+            let waitAbort = null;
+            let waitTimer = null;
+
+            function setStatus(state, text) {
+                statusEl.dataset.state = state;
+                statusEl.querySelector("span:last-child").textContent = text;
+            }
+
+            function nowStamp() {
+                return new Date().toLocaleTimeString();
+            }
+
+            function logLine(message, kind = "") {
+                const line = document.createElement("div");
+                line.className = `log-line ${kind}`.trim();
+                const time = document.createElement("div");
+                time.className = "time";
+                time.textContent = nowStamp();
+                const body = document.createElement("div");
+                body.textContent = message;
+                line.appendChild(time);
+                line.appendChild(body);
+                logEl.prepend(line);
+            }
+
+            function setResponse(data) {
+                responseEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+            }
+
+            function setNotificationResponse(data) {
+                notificationResponseEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+            }
+
+            function buildNotificationUrl(requestId) {
+                const base = notificationBaseUrlInput.value.trim().replace(/\/$/, "");
+                let path = notificationPathInput.value.trim() || "/notifications/wait";
+                let url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+                if (attachRequestIdInput.checked) {
+                    if (!requestId) {
+                        return "";
+                    }
+                    const joiner = url.includes("?") ? "&" : "?";
+                    url = `${url}${joiner}request_id=${encodeURIComponent(requestId)}`;
+                }
+                return url;
+            }
+
+            function cancelPendingWait() {
+                if (waitAbort) {
+                    waitAbort.abort();
+                    waitAbort = null;
+                }
+                if (waitTimer) {
+                    clearTimeout(waitTimer);
+                    waitTimer = null;
+                }
+            }
+
+            function queueNextWait(delayMs) {
+                if (!autoWaitEnabled) {
+                    return;
+                }
+                waitTimer = setTimeout(() => {
+                    waitTimer = null;
+                    waitForNotification();
+                }, delayMs);
+            }
+
+            async function waitForNotification() {
+                cancelPendingWait();
+                const url = buildNotificationUrl(lastRequestId);
+                if (!url) {
+                    setStatus("error", "Missing request_id");
+                    logLine("Provide a request_id before waiting.", "error");
+                    autoWaitEnabled = false;
+                    return;
+                }
+
+                setStatus("connecting", "Waiting");
+                logLine(`Waiting on ${url}`);
+                const controller = new AbortController();
+                waitAbort = controller;
+
+                try {
+                    const response = await fetch(url, { signal: controller.signal });
+                    const text = await response.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (err) {
+                        data = text;
+                    }
+                    setNotificationResponse(data);
+                    logLine(`WAIT -> ${response.status}`, response.ok ? "ok" : response.status === 202 ? "" : "error");
+
+                    if (response.ok) {
+                        setStatus("open", "Notification received");
+                        if (data && typeof data === "object" && data.event) {
+                            logLine(`Event: ${JSON.stringify(data.event)}`, "ok");
+                        }
+                        autoWaitEnabled = false;
+                    } else if (response.status === 202) {
+                        setStatus(autoWaitEnabled ? "connecting" : "closed", "Queued");
+                        queueNextWait(800);
+                    } else {
+                        setStatus("error", "Error");
+                        if (autoWaitEnabled) {
+                            queueNextWait(1200);
+                        }
+                    }
+                } catch (err) {
+                    if (err.name === "AbortError") {
+                        return;
+                    }
+                    setStatus("error", "Error");
+                    logLine(`Wait failed: ${err.message}`, "error");
+                    if (autoWaitEnabled) {
+                        queueNextWait(1200);
+                    }
+                } finally {
+                    waitAbort = null;
+                    if (!autoWaitEnabled && statusEl.dataset.state === "connecting") {
+                        setStatus("closed", "Idle");
+                    }
+                }
+            }
+
+            function waitOnce() {
+                autoWaitEnabled = false;
+                waitForNotification();
+            }
+
+            function startAutoWait() {
+                autoWaitEnabled = true;
+                waitForNotification();
+            }
+
+            function stopWait() {
+                autoWaitEnabled = false;
+                cancelPendingWait();
+                setStatus("closed", "Stopped");
+                logLine("Wait stopped");
+            }
+
+            async function handleSubmit(event) {
+                event.preventDefault();
+                const payload = {
+                    title: document.getElementById("title").value.trim(),
+                    description: document.getElementById("description").value.trim(),
+                    location: document.getElementById("location").value.trim(),
+                    severity: document.getElementById("severity").value,
+                    is_public: document.getElementById("is-public").checked,
+                    is_anon: document.getElementById("is-anon").checked,
+                    report_categories_id: Number(document.getElementById("category-id").value || 0),
+                    user_id: Number(document.getElementById("user-id").value || 0),
+                };
+
+                try {
+                    const baseUrl = reportBaseUrlInput.value.trim().replace(/\/$/, "");
+                    const response = await fetch(`${baseUrl}/reports`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                    });
+                    const text = await response.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (err) {
+                        data = text;
+                    }
+                    setResponse(data);
+                    logLine(`POST /reports -> ${response.status}`, response.ok ? "ok" : "error");
+
+                    if (data && typeof data === "object" && data.request_id) {
+                        lastRequestId = data.request_id;
+                        lastRequestIdInput.value = lastRequestId;
+                        if (autoWaitInput.checked) {
+                            startAutoWait();
+                        }
+                    }
+                } catch (err) {
+                    setResponse(`Request failed: ${err.message}`);
+                    logLine(`POST /reports failed: ${err.message}`, "error");
+                }
+            }
+
+            async function fetchReports() {
+                try {
+                    const baseUrl = reportBaseUrlInput.value.trim().replace(/\/$/, "");
+                    const response = await fetch(`${baseUrl}/reports`);
+                    const text = await response.text();
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (err) {
+                        data = text;
+                    }
+                    setResponse(data);
+                    logLine(`GET /reports -> ${response.status}`, response.ok ? "ok" : "error");
+                } catch (err) {
+                    setResponse(`Request failed: ${err.message}`);
+                    logLine(`GET /reports failed: ${err.message}`, "error");
+                }
+            }
+
+            form.addEventListener("submit", handleSubmit);
+            waitOnceBtn.addEventListener("click", waitOnce);
+            startAutoWaitBtn.addEventListener("click", startAutoWait);
+            stopWaitBtn.addEventListener("click", stopWait);
+            clearLogBtn.addEventListener("click", () => (logEl.innerHTML = ""));
+            clearResponseBtn.addEventListener("click", () => setResponse("{}"));
+            fetchReportsBtn.addEventListener("click", fetchReports);
+        </script>
+    </body>
+</html>

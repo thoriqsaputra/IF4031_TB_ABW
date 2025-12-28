@@ -136,6 +136,8 @@ func sendSubmissionEvent(writer *kafka.Writer, event submissionEvent) {
 
 	if err := writer.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
 		log.Printf("Failed to publish submission event: %v", err)
+	} else {
+		log.Printf("Successful publish submission event")
 	}
 }
 
