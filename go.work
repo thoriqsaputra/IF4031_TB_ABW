@@ -1,6 +1,8 @@
 go 1.25.5
 
 use (
-    ./agarthan/report_service
-    ./pkg/models
+	./agarthan/auth_service
+	./agarthan/report_service
+	./pkg/models
+	./pkg/middleware
 )

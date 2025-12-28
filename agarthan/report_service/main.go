@@ -32,35 +32,10 @@ func ConnectDB() {
 	log.Println("Database ceonnected")
 }
 
-func CreateUser(c *fiber.Ctx) error {
-	user := new(models.User)
-
-	if err := c.BodyParser(user); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if err := DB.Create(&user).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(user)
-}
-
-func GetUsers(c *fiber.Ctx) error {
-	var users []models.User
-
-	DB.Find(&users)
-
-	return c.JSON(users)
-}
-
 func main() {
 	ConnectDB()
 
 	app := fiber.New()
-
-	app.Post("/users", CreateUser)
-	app.Get("/users", GetUsers)
 
 	log.Fatal(app.Listen(":3000"))
 }
