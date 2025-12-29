@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -12,6 +14,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"middleware"
 	"models"
 )
 
@@ -22,6 +25,56 @@ const (
 var DB *gorm.DB
 var RabbitConn *amqp.Connection
 var RabbitChannel *amqp.Channel
+
+func userIDFromLocals(c *fiber.Ctx) (uint, error) {
+	raw := c.Locals("userID")
+	switch v := raw.(type) {
+	case float64:
+		if v <= 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(v), nil
+	case float32:
+		if v <= 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(v), nil
+	case int:
+		if v <= 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(v), nil
+	case int64:
+		if v <= 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(v), nil
+	case uint:
+		if v == 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return v, nil
+	case uint64:
+		if v == 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(v), nil
+	case string:
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil || parsed == 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(parsed), nil
+	case json.Number:
+		parsed, err := v.Int64()
+		if err != nil || parsed <= 0 {
+			return 0, errors.New("invalid user id")
+		}
+		return uint(parsed), nil
+	default:
+		return 0, errors.New("invalid user id")
+	}
+}
 
 func ConnectDB() {
 	var err error
@@ -91,6 +144,13 @@ func CreateReport(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	userID, err := userIDFromLocals(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+
+	report.UserID = userID
+
 	requestID := uuid.NewString()
 	message := models.ReportRequestMessage{
 		RequestID: requestID,
@@ -144,7 +204,7 @@ func main() {
 		AllowMethods: "*",
 	}))
 
-	app.Post("/reports", CreateReport)
+	app.Post("/reports", middleware.Protected(), CreateReport)
 	app.Get("/reports", GetReports)
 
 	log.Fatal(app.Listen(":3001"))
