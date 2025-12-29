@@ -7,6 +7,8 @@ services:
       DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
     depends_on:
       - postgres
+    networks:
+      - app_net
     ports:
       - "3000:3000"
 
@@ -22,8 +24,22 @@ services:
         condition: service_healthy
       rabbitmq:
           condition: service_healthy
+    networks:
+      - app_net
     ports:
       - "3001:3001"
+
+  auth_service:
+    build:
+      context: .
+      dockerfile: agarthan/auth_service/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
 
   report_worker:
     build:
@@ -41,6 +57,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    networks:
+      - app_net
 
   notification_service:
     build:
@@ -52,8 +70,24 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    networks:
+      - app_net
     ports:
       - "3002:3002"
+
+  api_gateway:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth_service
+      - user_service
+      - report_service
+      - notification_service
+    networks:
+      - app_net
+    ports:
+      - "8080:80"
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -66,6 +100,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - app_net
 
   kafka:
     build:
@@ -99,6 +135,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - app_net
 
   postgres:
     image: postgres:16-alpine
@@ -116,6 +154,11 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - app_net
 
 volumes:
   postgres_data:
+
+networks:
+  app_net:
