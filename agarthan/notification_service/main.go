@@ -20,6 +20,8 @@ import (
 const (
 	submissionTopicDefault = "submission.events"
 	waitTimeoutDefault     = 5 * time.Second
+	maxReconnectAttempts   = 3
+	reconnectBackoff       = 500 * time.Millisecond
 )
 
 // submissionEvent mirrors the worker payload. It also accepts legacy casing.
@@ -112,7 +114,47 @@ func kafkaTopic() string {
 	return submissionTopicDefault
 }
 
+func dialKafkaBroker() (*kafka.Conn, error) {
+	brokers := kafkaBrokers()
+	if len(brokers) == 0 {
+		return nil, errors.New("no kafka brokers configured")
+	}
+
+	var lastErr error
+	for _, broker := range brokers {
+		conn, err := kafka.Dial("tcp", broker)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+
+	return nil, lastErr
+}
+
+func connectKafkaWithRetry() {
+	var lastErr error
+	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		conn, err := dialKafkaBroker()
+		if err == nil {
+			_ = conn.Close()
+			log.Println("Kafka connected")
+			return
+		}
+
+		lastErr = err
+		log.Printf("Kafka connection failed (attempt %d/%d): %v", attempt, maxReconnectAttempts, err)
+		if attempt < maxReconnectAttempts {
+			time.Sleep(time.Duration(attempt) * reconnectBackoff)
+		}
+	}
+
+	log.Fatal("Failed to connect to Kafka after retries:", lastErr)
+}
+
 func startKafkaNotificationListener() *kafka.Reader {
+	connectKafkaWithRetry()
+
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     kafkaBrokers(),
 		Topic:       kafkaTopic(),
@@ -123,6 +165,7 @@ func startKafkaNotificationListener() *kafka.Reader {
 	})
 
 	go func() {
+		retryCount := 0
 		for {
 			msg, err := reader.ReadMessage(context.Background())
 			if err != nil {
@@ -134,10 +177,16 @@ func startKafkaNotificationListener() *kafka.Reader {
 				} else {
 					log.Printf("Kafka read error: %v", err)
 				}
-				time.Sleep(time.Second)
+
+				retryCount++
+				if retryCount >= maxReconnectAttempts {
+					log.Fatal("Failed to read from Kafka after retries:", err)
+				}
+				time.Sleep(time.Duration(retryCount) * reconnectBackoff)
 				continue
 			}
 
+			retryCount = 0
 			var ev submissionEvent
 			if err := json.Unmarshal(msg.Value, &ev); err != nil {
 				log.Printf("Kafka message parse error: %v (value=%s)", err, string(msg.Value))

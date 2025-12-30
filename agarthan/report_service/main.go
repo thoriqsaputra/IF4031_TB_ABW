@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -19,7 +20,9 @@ import (
 )
 
 const (
-	reportQueueName = "report_requests"
+	reportQueueName      = "report_requests"
+	maxReconnectAttempts = 3
+	reconnectBackoff     = 500 * time.Millisecond
 )
 
 var DB *gorm.DB
@@ -112,29 +115,44 @@ func ConnectRabbit() {
 		amqpURL = "amqp://guest:guest@localhost:5672/"
 	}
 
-	RabbitConn, err = amqp.Dial(amqpURL)
-	if err != nil {
-		log.Fatal("Failed to connect to RabbitMQ:", err)
+	var lastErr error
+	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		RabbitConn, err = amqp.Dial(amqpURL)
+		if err == nil {
+			RabbitChannel, err = RabbitConn.Channel()
+		}
+		if err == nil {
+			_, err = RabbitChannel.QueueDeclare(
+				reportQueueName,
+				true,
+				false,
+				false,
+				false,
+				nil,
+			)
+		}
+		if err == nil {
+			log.Println("RabbitMQ connected")
+			return
+		}
+
+		if RabbitChannel != nil {
+			_ = RabbitChannel.Close()
+			RabbitChannel = nil
+		}
+		if RabbitConn != nil {
+			_ = RabbitConn.Close()
+			RabbitConn = nil
+		}
+
+		lastErr = err
+		log.Printf("RabbitMQ connection failed (attempt %d/%d): %v", attempt, maxReconnectAttempts, err)
+		if attempt < maxReconnectAttempts {
+			time.Sleep(time.Duration(attempt) * reconnectBackoff)
+		}
 	}
 
-	RabbitChannel, err = RabbitConn.Channel()
-	if err != nil {
-		log.Fatal("Failed to open RabbitMQ channel:", err)
-	}
-
-	_, err = RabbitChannel.QueueDeclare(
-		reportQueueName,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Fatal("Failed to declare RabbitMQ queue:", err)
-	}
-
-	log.Println("RabbitMQ connected")
+	log.Fatal("Failed to connect to RabbitMQ after retries:", lastErr)
 }
 
 func CreateReport(c *fiber.Ctx) error {

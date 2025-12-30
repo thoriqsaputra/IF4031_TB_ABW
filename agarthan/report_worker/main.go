@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -19,6 +20,8 @@ import (
 const (
 	reportQueueName        = "report_requests"
 	submissionTopicDefault = "submission.events"
+	maxReconnectAttempts   = 3
+	reconnectBackoff       = 500 * time.Millisecond
 )
 
 var DB *gorm.DB
@@ -63,30 +66,42 @@ func ConnectRabbit() (*amqp.Connection, *amqp.Channel) {
 		amqpURL = "amqp://guest:guest@localhost:5672/"
 	}
 
-	conn, err := amqp.Dial(amqpURL)
-	if err != nil {
-		log.Fatal("Failed to connect to RabbitMQ:", err)
+	var lastErr error
+	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		conn, err := amqp.Dial(amqpURL)
+		if err == nil {
+			ch, err := conn.Channel()
+			if err == nil {
+				_, err = ch.QueueDeclare(
+					reportQueueName,
+					true,
+					false,
+					false,
+					false,
+					nil,
+				)
+			}
+			if err == nil {
+				log.Println("RabbitMQ connected")
+				return conn, ch
+			}
+			if ch != nil {
+				_ = ch.Close()
+			}
+		}
+		if conn != nil {
+			_ = conn.Close()
+		}
+
+		lastErr = err
+		log.Printf("RabbitMQ connection failed (attempt %d/%d): %v", attempt, maxReconnectAttempts, err)
+		if attempt < maxReconnectAttempts {
+			time.Sleep(time.Duration(attempt) * reconnectBackoff)
+		}
 	}
 
-	ch, err := conn.Channel()
-	if err != nil {
-		log.Fatal("Failed to open RabbitMQ channel:", err)
-	}
-
-	_, err = ch.QueueDeclare(
-		reportQueueName,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Fatal("Failed to declare RabbitMQ queue:", err)
-	}
-
-	log.Println("RabbitMQ connected")
-	return conn, ch
+	log.Fatal("Failed to connect to RabbitMQ after retries:", lastErr)
+	return nil, nil
 }
 
 func kafkaBrokers() []string {
@@ -113,6 +128,44 @@ func kafkaTopic() string {
 	}
 
 	return submissionTopicDefault
+}
+
+func dialKafkaBroker() (*kafka.Conn, error) {
+	brokers := kafkaBrokers()
+	if len(brokers) == 0 {
+		return nil, errors.New("no kafka brokers configured")
+	}
+
+	var lastErr error
+	for _, broker := range brokers {
+		conn, err := kafka.Dial("tcp", broker)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+
+	return nil, lastErr
+}
+
+func connectKafkaWithRetry() {
+	var lastErr error
+	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
+		conn, err := dialKafkaBroker()
+		if err == nil {
+			_ = conn.Close()
+			log.Println("Kafka connected")
+			return
+		}
+
+		lastErr = err
+		log.Printf("Kafka connection failed (attempt %d/%d): %v", attempt, maxReconnectAttempts, err)
+		if attempt < maxReconnectAttempts {
+			time.Sleep(time.Duration(attempt) * reconnectBackoff)
+		}
+	}
+
+	log.Fatal("Failed to connect to Kafka after retries:", lastErr)
 }
 
 func newKafkaWriter() *kafka.Writer {
@@ -148,6 +201,7 @@ func main() {
 	defer conn.Close()
 	defer ch.Close()
 
+	connectKafkaWithRetry()
 	kafkaWriter := newKafkaWriter()
 	defer func() {
 		if err := kafkaWriter.Close(); err != nil {
