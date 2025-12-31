@@ -3,6 +3,11 @@ module auth_service
 go 1.25.5
 
 require (
+	middleware v0.0.0
+	models v0.0.0
+)
+
+require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/gofiber/fiber/v2 v2.52.10 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
@@ -27,4 +32,9 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 	gorm.io/gorm v1.31.1 // indirect
+)
+
+replace (
+	middleware => ../../pkg/middleware
+	models => ../../pkg/models
 )
