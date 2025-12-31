@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Search Service Test Bench</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@400;500;600&family=Unbounded:wght@500;700&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --bg-1: #f2efe8;
+                --bg-2: #f7dcc2;
+                --ink: #1e1b17;
+                --muted: #6f6256;
+                --panel: #fffaf3;
+                --panel-2: #fff2e1;
+                --line: #d9c6b2;
+                --accent: #d04e2a;
+                --accent-2: #1e7f6f;
+                --accent-3: #f2b44b;
+                --good: #1f7a57;
+                --bad: #9f2d24;
+                --shadow: 0 24px 45px rgba(46, 29, 16, 0.18);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: "Spline Sans", "Segoe UI", sans-serif;
+                color: var(--ink);
+                background: radial-gradient(circle at 5% 10%, rgba(208, 78, 42, 0.15), transparent 40%),
+                    radial-gradient(circle at 85% 20%, rgba(30, 127, 111, 0.18), transparent 45%),
+                    linear-gradient(120deg, var(--bg-1), var(--bg-2));
+            }
+
+            body::before,
+            body::after {
+                content: "";
+                position: fixed;
+                border-radius: 999px;
+                z-index: 0;
+                opacity: 0.35;
+                filter: blur(1px);
+                animation: float 14s ease-in-out infinite;
+            }
+
+            body::before {
+                width: 240px;
+                height: 240px;
+                background: rgba(30, 127, 111, 0.2);
+                top: 12%;
+                right: 7%;
+            }
+
+            body::after {
+                width: 280px;
+                height: 280px;
+                background: rgba(242, 180, 75, 0.25);
+                bottom: 6%;
+                left: 4%;
+                animation-delay: -6s;
+            }
+
+            main {
+                position: relative;
+                z-index: 1;
+                max-width: 1120px;
+                margin: 0 auto;
+                padding: 32px 20px 56px;
+                display: grid;
+                gap: 22px;
+                animation: rise 720ms ease-out both;
+            }
+
+            header {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                padding: 24px;
+                border-radius: 22px;
+                background: var(--panel);
+                box-shadow: var(--shadow);
+                border: 1px solid rgba(217, 198, 178, 0.7);
+            }
+
+            header h1 {
+                margin: 0;
+                font-family: "Unbounded", "Georgia", serif;
+                font-size: clamp(2.1rem, 3.6vw, 2.9rem);
+                letter-spacing: -0.02em;
+            }
+
+            header p {
+                margin: 0;
+                color: var(--muted);
+                max-width: 680px;
+                font-size: 0.98rem;
+            }
+
+            .meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .pill {
+                font-family: "Unbounded", "Spline Sans", sans-serif;
+                font-size: 0.72rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                background: var(--panel-2);
+                color: var(--muted);
+                border-radius: 999px;
+                padding: 6px 12px;
+                border: 1px solid rgba(217, 198, 178, 0.9);
+            }
+
+            .grid {
+                display: grid;
+                gap: 20px;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+
+            .card {
+                padding: 20px;
+                border-radius: 18px;
+                background: var(--panel);
+                border: 1px solid rgba(217, 198, 178, 0.7);
+                box-shadow: var(--shadow);
+                display: grid;
+                gap: 14px;
+                animation: rise 720ms ease-out both;
+            }
+
+            .card:nth-child(2) {
+                animation-delay: 120ms;
+            }
+
+            .card:nth-child(3) {
+                animation-delay: 200ms;
+            }
+
+            h2 {
+                margin: 0;
+                font-size: 1.2rem;
+                letter-spacing: -0.01em;
+            }
+
+            label {
+                display: grid;
+                gap: 6px;
+                font-size: 0.84rem;
+                color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+            }
+
+            input,
+            select,
+            textarea {
+                font-family: "Spline Sans", "Segoe UI", sans-serif;
+                font-size: 0.96rem;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid var(--line);
+                background: #fff;
+                color: var(--ink);
+                transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            }
+
+            input:focus,
+            select:focus,
+            textarea:focus {
+                outline: none;
+                border-color: var(--accent);
+                box-shadow: 0 0 0 3px rgba(208, 78, 42, 0.2);
+            }
+
+            .row {
+                display: grid;
+                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            }
+
+            .checks {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 14px;
+                font-size: 0.92rem;
+                color: var(--muted);
+            }
+
+            .checks label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                text-transform: none;
+                letter-spacing: 0;
+                font-size: 0.92rem;
+                color: var(--muted);
+            }
+
+            button {
+                cursor: pointer;
+                border: none;
+                border-radius: 999px;
+                padding: 10px 16px;
+                font-weight: 600;
+                background: var(--accent);
+                color: #fff;
+                transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+                box-shadow: 0 10px 20px rgba(208, 78, 42, 0.2);
+            }
+
+            button.secondary {
+                background: #fff;
+                color: var(--ink);
+                border: 1px solid var(--line);
+                box-shadow: none;
+            }
+
+            button.ghost {
+                background: transparent;
+                color: var(--muted);
+                border: 1px dashed rgba(109, 95, 84, 0.5);
+                box-shadow: none;
+            }
+
+            button:hover {
+                transform: translateY(-1px);
+            }
+
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+                box-shadow: none;
+            }
+
+            .status {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 0.9rem;
+                color: var(--muted);
+            }
+
+            .status-dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #c1b0a0;
+            }
+
+            .status[data-state="ready"] .status-dot {
+                background: var(--good);
+                box-shadow: 0 0 0 6px rgba(31, 122, 87, 0.15);
+            }
+
+            .status[data-state="error"] .status-dot {
+                background: var(--bad);
+                box-shadow: 0 0 0 6px rgba(159, 45, 36, 0.12);
+            }
+
+            .status[data-state="working"] .status-dot {
+                background: var(--accent-3);
+                box-shadow: 0 0 0 6px rgba(242, 180, 75, 0.15);
+            }
+
+            .output {
+                padding: 12px;
+                background: #151311;
+                border-radius: 12px;
+                color: #f1eae2;
+                font-family: "Spline Sans", "Segoe UI", sans-serif;
+                font-size: 0.88rem;
+                overflow: auto;
+                min-height: 80px;
+                max-height: 220px;
+            }
+
+            .results {
+                display: grid;
+                gap: 12px;
+            }
+
+            .result-card {
+                padding: 14px;
+                border-radius: 14px;
+                border: 1px solid rgba(217, 198, 178, 0.8);
+                background: #fff;
+                display: grid;
+                gap: 6px;
+            }
+
+            .result-title {
+                font-weight: 600;
+                font-size: 1rem;
+            }
+
+            .result-meta {
+                font-size: 0.82rem;
+                color: var(--muted);
+            }
+
+            .log {
+                display: grid;
+                gap: 8px;
+                max-height: 220px;
+                overflow: auto;
+                padding-right: 6px;
+            }
+
+            .log-line {
+                display: grid;
+                gap: 4px;
+                padding: 10px 12px;
+                border-radius: 12px;
+                background: #fff;
+                border: 1px solid rgba(217, 198, 178, 0.9);
+                font-size: 0.78rem;
+            }
+
+            .log-line.ok {
+                border-color: rgba(31, 122, 87, 0.4);
+                background: rgba(31, 122, 87, 0.08);
+            }
+
+            .log-line.error {
+                border-color: rgba(159, 45, 36, 0.4);
+                background: rgba(159, 45, 36, 0.08);
+            }
+
+            .log-line .time {
+                color: rgba(109, 95, 84, 0.8);
+                font-size: 0.7rem;
+            }
+
+            @keyframes rise {
+                from {
+                    opacity: 0;
+                    transform: translateY(12px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @keyframes float {
+                0%,
+                100% {
+                    transform: translate3d(0, 0, 0);
+                }
+                50% {
+                    transform: translate3d(0, -18px, 0);
+                }
+            }
+
+            @media (max-width: 720px) {
+                header {
+                    padding: 18px;
+                }
+
+                .card {
+                    padding: 18px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <div>
+                    <h1>Search Service Test Bench</h1>
+                    <p>Log in, store a token, and run report searches against the public or self-only endpoints.</p>
+                </div>
+                <div class="meta">
+                    <span class="pill">POST /api/auth/login</span>
+                    <span class="pill">GET /searchbar_public</span>
+                    <span class="pill">GET /searchbar_self</span>
+                </div>
+            </header>
+
+            <section class="grid">
+                <div class="card">
+                    <h2>Connection</h2>
+                    <label>
+                        Auth Base URL
+                        <input id="auth-base-url" type="url" value="http://localhost:8080">
+                    </label>
+                    <label>
+                        Search Base URL
+                        <input id="search-base-url" type="url" value="http://localhost:8080">
+                    </label>
+                    <div class="status" id="auth-status" data-state="idle">
+                        <span class="status-dot"></span>
+                        <span>Not logged in</span>
+                    </div>
+                    <div class="meta">
+                        <button id="clear-log" class="ghost" type="button">Clear log</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Auth</h2>
+                    <form id="login-form">
+                        <label>
+                            Email
+                            <input id="email" type="email" value="user@example.com" required>
+                        </label>
+                        <label>
+                            Password
+                            <input id="password" type="password" value="password" required>
+                        </label>
+                        <div class="meta">
+                            <button type="submit">Log in</button>
+                            <button id="logout" class="secondary" type="button">Log out</button>
+                        </div>
+                    </form>
+                    <div>
+                        <div class="status">
+                            <span>Token</span>
+                        </div>
+                        <pre id="token-output" class="output">No token stored.</pre>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Search</h2>
+                    <label>
+                        Query
+                        <input id="query" type="text" placeholder="Search reports by title, description, or location">
+                    </label>
+                    <div class="row">
+                        <label>
+                            Limit
+                            <input id="limit" type="number" min="1" value="10">
+                        </label>
+                        <label>
+                            Offset
+                            <input id="offset" type="number" min="0" value="0">
+                        </label>
+                    </div>
+                    <div class="checks">
+                        <label>
+                            <input type="radio" name="mode" value="public" checked>
+                            Public search
+                        </label>
+                        <label>
+                            <input type="radio" name="mode" value="self">
+                            Self-only search
+                        </label>
+                    </div>
+                    <div class="meta">
+                        <button id="run-search" type="button">Run search</button>
+                        <button id="clear-results" class="ghost" type="button">Clear results</button>
+                        <button id="prev-page" class="secondary" type="button">Prev</button>
+                        <button id="next-page" class="secondary" type="button">Next</button>
+                    </div>
+                    <div class="status" id="search-status" data-state="idle">
+                        <span class="status-dot"></span>
+                        <span>Idle</span>
+                    </div>
+                    <div class="status" id="page-info" data-state="idle">
+                        <span class="status-dot"></span>
+                        <span>Page: -</span>
+                    </div>
+                    <div>
+                        <div class="status">
+                            <span>Results</span>
+                        </div>
+                        <div id="results" class="results"></div>
+                    </div>
+                    <div>
+                        <div class="status">
+                            <span>Raw response</span>
+                        </div>
+                        <pre id="raw-response" class="output">{}</pre>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Activity log</h2>
+                <div class="log" id="log"></div>
+            </section>
+        </main>
+
+        <script>
+            const authBaseUrlInput = document.getElementById("auth-base-url");
+            const searchBaseUrlInput = document.getElementById("search-base-url");
+            const authStatusEl = document.getElementById("auth-status");
+            const tokenOutput = document.getElementById("token-output");
+            const rawResponseEl = document.getElementById("raw-response");
+            const resultsEl = document.getElementById("results");
+            const searchStatusEl = document.getElementById("search-status");
+            const logEl = document.getElementById("log");
+            const loginForm = document.getElementById("login-form");
+            const logoutBtn = document.getElementById("logout");
+            const runSearchBtn = document.getElementById("run-search");
+            const clearResultsBtn = document.getElementById("clear-results");
+            const clearLogBtn = document.getElementById("clear-log");
+            const prevPageBtn = document.getElementById("prev-page");
+            const nextPageBtn = document.getElementById("next-page");
+            const pageInfoEl = document.getElementById("page-info");
+
+            const tokenKey = "search_service_token";
+            let authToken = "";
+            let lastPageMeta = null;
+
+            function setAuthStatus(state, text) {
+                authStatusEl.dataset.state = state;
+                authStatusEl.querySelector("span:last-child").textContent = text;
+            }
+
+            function setSearchStatus(state, text) {
+                searchStatusEl.dataset.state = state;
+                searchStatusEl.querySelector("span:last-child").textContent = text;
+            }
+
+            function setPageInfo(text, state) {
+                pageInfoEl.dataset.state = state || "idle";
+                pageInfoEl.querySelector("span:last-child").textContent = text;
+            }
+
+            function logLine(message, kind = "") {
+                const line = document.createElement("div");
+                line.className = `log-line ${kind}`.trim();
+                const time = document.createElement("div");
+                time.className = "time";
+                time.textContent = new Date().toLocaleTimeString();
+                const body = document.createElement("div");
+                body.textContent = message;
+                line.appendChild(time);
+                line.appendChild(body);
+                logEl.prepend(line);
+            }
+
+            function setToken(token) {
+                authToken = token || "";
+                if (authToken) {
+                    localStorage.setItem(tokenKey, authToken);
+                    tokenOutput.textContent = authToken;
+                    setAuthStatus("ready", "Logged in");
+                } else {
+                    localStorage.removeItem(tokenKey);
+                    tokenOutput.textContent = "No token stored.";
+                    setAuthStatus("idle", "Not logged in");
+                }
+            }
+
+            function loadToken() {
+                const stored = localStorage.getItem(tokenKey);
+                if (stored) {
+                    setToken(stored);
+                } else {
+                    setToken("");
+                }
+            }
+
+            function parseJson(text) {
+                try {
+                    return JSON.parse(text);
+                } catch (err) {
+                    return text;
+                }
+            }
+
+            function buildAuthUrl(path) {
+                const base = authBaseUrlInput.value.trim().replace(/\/$/, "");
+                return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+            }
+
+            function buildSearchUrl(path, params) {
+                const base = searchBaseUrlInput.value.trim().replace(/\/$/, "");
+                const url = new URL(`${base}${path.startsWith("/") ? "" : "/"}${path}`);
+                Object.entries(params).forEach(([key, value]) => {
+                    if (value !== "" && value !== null && value !== undefined) {
+                        url.searchParams.set(key, value);
+                    }
+                });
+                return url.toString();
+            }
+
+            function renderResults(data) {
+                resultsEl.innerHTML = "";
+                if (!data || typeof data !== "object") {
+                    return;
+                }
+                if (!Array.isArray(data.items) || data.items.length === 0) {
+                    const empty = document.createElement("div");
+                    empty.className = "result-card";
+                    empty.textContent = "No results returned.";
+                    resultsEl.appendChild(empty);
+                    return;
+                }
+                data.items.forEach((item) => {
+                    const card = document.createElement("div");
+                    card.className = "result-card";
+                    const title = document.createElement("div");
+                    title.className = "result-title";
+                    title.textContent = item.report_title || "Untitled report";
+                    const meta = document.createElement("div");
+                    meta.className = "result-meta";
+                    meta.textContent = `Poster: ${item.poster_name || "Unknown"}`;
+                    const desc = document.createElement("div");
+                    desc.textContent = item.report_description || "No description.";
+                    card.appendChild(title);
+                    card.appendChild(meta);
+                    card.appendChild(desc);
+                    resultsEl.appendChild(card);
+                });
+            }
+
+            function updatePagination(meta, count) {
+                if (!meta) {
+                    lastPageMeta = null;
+                    prevPageBtn.disabled = true;
+                    nextPageBtn.disabled = true;
+                    setPageInfo("Page: -", "idle");
+                    return;
+                }
+
+                lastPageMeta = meta;
+                const total = Number.isFinite(meta.total) ? meta.total : 0;
+                const offset = Number.isFinite(meta.offset) ? meta.offset : 0;
+                const limit = Number.isFinite(meta.limit) ? meta.limit : 0;
+                const safeCount = Number.isFinite(count) ? count : 0;
+                const start = total === 0 ? 0 : offset + 1;
+                const end = offset + safeCount;
+                const nextOffset = meta.nextOffset;
+
+                prevPageBtn.disabled = offset <= 0;
+                nextPageBtn.disabled = nextOffset === null || nextOffset === undefined;
+                setPageInfo(`Page: ${start}-${end} of ${total}`, "ready");
+
+                if (limit > 0) {
+                    document.getElementById("limit").value = limit;
+                }
+                document.getElementById("offset").value = offset;
+            }
+
+            async function login(event) {
+                event.preventDefault();
+                setAuthStatus("working", "Logging in");
+                const email = document.getElementById("email").value.trim();
+                const password = document.getElementById("password").value;
+                try {
+                    const response = await fetch(buildAuthUrl("/api/auth/login"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email, password }),
+                    });
+                    const text = await response.text();
+                    const data = parseJson(text);
+                    if (!response.ok) {
+                        setAuthStatus("error", "Login failed");
+                        logLine(`Login failed: ${response.status}`, "error");
+                        rawResponseEl.textContent = JSON.stringify(data, null, 2);
+                        return;
+                    }
+                    if (data && data.token) {
+                        setToken(data.token);
+                        logLine("Login success", "ok");
+                    } else {
+                        setAuthStatus("error", "Token missing");
+                        logLine("Login response missing token", "error");
+                    }
+                } catch (err) {
+                    setAuthStatus("error", "Login error");
+                    logLine(`Login error: ${err.message}`, "error");
+                }
+            }
+
+            function logout() {
+                setToken("");
+                logLine("Logged out");
+            }
+
+            async function runSearch() {
+                setSearchStatus("working", "Searching");
+                const query = document.getElementById("query").value.trim();
+                const limit = Number(document.getElementById("limit").value || 0);
+                const offset = Number(document.getElementById("offset").value || 0);
+                const mode = document.querySelector("input[name=\"mode\"]:checked").value;
+                const path = mode === "self" ? "/searchbar_self" : "/searchbar_public";
+                const url = buildSearchUrl(path, { q: query, limit, offset });
+
+                try {
+                    const headers = {};
+                    if (mode === "self") {
+                        if (!authToken) {
+                            setSearchStatus("error", "Login required");
+                            logLine("Self search blocked: missing token", "error");
+                            return;
+                        }
+                        headers.Authorization = `Bearer ${authToken}`;
+                    }
+                    const response = await fetch(url, { headers });
+                    const text = await response.text();
+                    const data = parseJson(text);
+                    rawResponseEl.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+
+                    if (!response.ok) {
+                        setSearchStatus("error", "Search failed");
+                        logLine(`Search failed: ${response.status}`, "error");
+                        renderResults(null);
+                        updatePagination(null, 0);
+                        return;
+                    }
+
+                    renderResults(data);
+                    const count = Array.isArray(data.items) ? data.items.length : Number(data.count || 0);
+                    const meta = {
+                        total: Number(data.total || 0),
+                        limit: Number(data.limit || limit),
+                        offset: Number(data.offset || offset),
+                        nextOffset: data.next_offset,
+                    };
+                    updatePagination(meta, count);
+                    setSearchStatus("ready", `OK (${count} results)`);
+                    logLine(`Search OK: ${response.status}`, "ok");
+                } catch (err) {
+                    setSearchStatus("error", "Search error");
+                    logLine(`Search error: ${err.message}`, "error");
+                    updatePagination(null, 0);
+                }
+            }
+
+            loginForm.addEventListener("submit", login);
+            logoutBtn.addEventListener("click", logout);
+            runSearchBtn.addEventListener("click", runSearch);
+            prevPageBtn.addEventListener("click", () => {
+                const limit = Number(document.getElementById("limit").value || 0);
+                const offset = Number(document.getElementById("offset").value || 0);
+                const prevOffset = Math.max(0, offset - (limit || 0));
+                document.getElementById("offset").value = prevOffset;
+                runSearch();
+            });
+            nextPageBtn.addEventListener("click", () => {
+                if (lastPageMeta && lastPageMeta.nextOffset !== null && lastPageMeta.nextOffset !== undefined) {
+                    document.getElementById("offset").value = lastPageMeta.nextOffset;
+                } else {
+                    const limit = Number(document.getElementById("limit").value || 0);
+                    const offset = Number(document.getElementById("offset").value || 0);
+                    document.getElementById("offset").value = offset + (limit || 0);
+                }
+                runSearch();
+            });
+            clearResultsBtn.addEventListener("click", () => {
+                resultsEl.innerHTML = "";
+                rawResponseEl.textContent = "{}";
+                updatePagination(null, 0);
+            });
+            clearLogBtn.addEventListener("click", () => (logEl.innerHTML = ""));
+
+            loadToken();
+        </script>
+    </body>
+</html>

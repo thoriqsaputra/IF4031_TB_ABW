@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -252,6 +254,57 @@ func WaitForNotification(c *fiber.Ctx) error {
 	})
 }
 
+func WaitForNotificationStream(c *fiber.Ctx) error {
+	requestID := strings.TrimSpace(c.Query("request_id"))
+	if requestID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "request_id is required"})
+	}
+
+	ttl := waitTimeout()
+
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("X-Accel-Buffering", "no")
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		ch := notificationHub.register(requestID)
+		defer notificationHub.unregister(requestID)
+
+		timeout := time.NewTimer(ttl)
+		defer timeout.Stop()
+
+		select {
+		case ev, ok := <-ch:
+			if ok {
+				payload := fiber.Map{
+					"status":     "done",
+					"request_id": requestID,
+					"event":      ev,
+				}
+				data, _ := json.Marshal(payload)
+				fmt.Fprint(w, "event: report\n")
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				_ = w.Flush()
+			}
+		case <-timeout.C:
+			payload := fiber.Map{
+				"status":     "queued",
+				"request_id": requestID,
+				"timeout_ms": int(ttl.Milliseconds()),
+			}
+			data, _ := json.Marshal(payload)
+			fmt.Fprint(w, "event: timeout\n")
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			_ = w.Flush()
+		case <-c.Context().Done():
+			return
+		}
+	})
+
+	return nil
+}
+
 func main() {
 	kafkaReader := startKafkaNotificationListener()
 	defer func() {
@@ -269,6 +322,7 @@ func main() {
 	}))
 
 	app.Get("/notifications/wait", WaitForNotification)
+	app.Get("/notifications/stream", WaitForNotificationStream)
 
 	log.Fatal(app.Listen(":3002"))
 }

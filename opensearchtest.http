@@ -1,0 +1,123 @@
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "match_all": {}
+  }
+}
+
+###
+
+GET http://localhost:9200/reports/_mapping
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "match": {
+      "title": "quarterly revenue"
+    }
+  }
+}
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "term": {
+      "status.keyword": "published"
+    }
+  }
+}
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "range": {
+      "created_at": {
+        "gte": "2024-01-01",
+        "lte": "2024-12-31"
+      }
+    }
+  },
+  "sort": [
+    {
+      "created_at": "desc"
+    }
+  ],
+  "size": 10
+}
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "match": {
+            "author": "sri"
+          }
+        }
+      ],
+      "filter": [
+        {
+          "term": {
+            "status.keyword": "published"
+          }
+        }
+      ]
+    }
+  },
+  "from": 0,
+  "size": 25
+}
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "query": {
+    "match": {
+      "body": "risk assessment"
+    }
+  },
+  "highlight": {
+    "fields": {
+      "body": {}
+    }
+  }
+}
+
+###
+
+GET http://localhost:9200/reports/_search?pretty
+content-type: application/json
+
+{
+  "size": 0,
+  "aggs": {
+    "by_status": {
+      "terms": {
+        "field": "status.keyword"
+      }
+    }
+  }
+}
+
