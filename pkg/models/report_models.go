@@ -14,6 +14,7 @@ type ReportMedia struct {
 	ObjectKey     string    `json:"object_key"`
 	CreatedAt     time.Time `json:"created_at"`
 	ReportID      uint      `json:"report_id"`
+	Report        Report    `gorm:"foreignKey:ReportID" json:"report,omitempty"`
 }
 
 type ReportAssignment struct {
