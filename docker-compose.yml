@@ -1,4 +1,5 @@
 services:
+  # ========== Application Services ==========
   user_service:
     build:
       context: .
@@ -77,21 +78,6 @@ services:
     networks:
       - app_net
 
-  notification_service:
-    build:
-      context: .
-      dockerfile: agarthan/notification_service/Dockerfile
-    environment:
-      KAFKA_BROKERS: kafka:19092
-      KAFKA_TOPIC: submission.events
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - app_net
-    ports:
-      - "3002:3002"
-
   api_gateway:
     image: nginx:1.27-alpine
     volumes:
@@ -105,6 +91,52 @@ services:
       - app_net
     ports:
       - "8080:80"
+
+  media_service:
+    build:
+      context: .
+      dockerfile: agarthan/media_service/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      KAFKA_BROKERS: kafka:19092
+      KAFKA_MEDIA_TOPIC: media.events
+      PORT: "3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app_net
+    ports:
+      - "3002:3002"
+
+  notification_service:
+    build:
+      context: .
+      dockerfile: agarthan/notification_service/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      KAFKA_BROKERS: kafka:19092
+      KAFKA_GROUP_ID: notification_service
+      PORT: "3003"
+    depends_on:
+      postgres:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    networks:
+      - app_net
+    ports:
+      - "3003:3003"
+
+  # ========== Infrastructure Services ==========
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -198,9 +230,104 @@ services:
     networks:
       - app_net
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_net
+
+  # ========== Observability Stack ==========
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - user_service
+      - report_service
+      - media_service
+      - notification_service
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    ports:
+      - "3100:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3101:3100"
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+    volumes:
+      - jaeger_data:/tmp
+
 volumes:
   postgres_data:
   opensearch-data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  jaeger_data:
 
 networks:
   app_net:

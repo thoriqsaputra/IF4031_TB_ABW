@@ -3,272 +3,557 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
+	"fmt"
 	"log"
+	"models"
 	"os"
-	"strconv"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/websocket/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
 	"github.com/segmentio/kafka-go"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-const (
-	submissionTopicDefault = "submission.events"
-	waitTimeoutDefault     = 5 * time.Second
-	maxReconnectAttempts   = 3
-	reconnectBackoff       = 500 * time.Millisecond
+// Global connections
+var (
+	DB              *gorm.DB
+	KafkaReaders    []*kafka.Reader
+	NotificationHub *Hub
 )
 
-// submissionEvent mirrors the worker payload. It also accepts legacy casing.
-type submissionEvent struct {
-	RequestID string `json:"request_id"`
-	Status    string `json:"status"`
-	Message   string `json:"message"`
+// Hub maintains active WebSocket connections
+type Hub struct {
+	clients    map[*Client]bool
+	broadcast  chan []byte
+	register   chan *Client
+	unregister chan *Client
+	mu         sync.RWMutex
 }
 
-type legacySubmissionEvent struct {
-	RequestID string `json:"RequestID"`
-	Status    string `json:"Status"`
-	Message   string `json:"Message"`
+// Client represents a WebSocket client
+type Client struct {
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	userID uint
 }
 
-type waiterHub struct {
-	mu      sync.Mutex
-	waiters map[string]chan submissionEvent
+// Prometheus metrics
+var (
+	notificationsProcessed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "notifications_processed_total",
+			Help: "Total number of notifications processed",
+		},
+		[]string{"type", "status"},
+	)
+	notificationsDelivered = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "notifications_delivered_total",
+			Help: "Total number of notifications delivered via WebSocket",
+		},
+		[]string{"status"},
+	)
+	activeWebSocketConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "notification_websocket_connections_active",
+			Help: "Number of active WebSocket connections",
+		},
+	)
+	kafkaConsumerLag = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "notification_kafka_consumer_lag",
+			Help: "Kafka consumer lag by topic",
+		},
+		[]string{"topic"},
+	)
+	eventProcessingDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "notification_event_processing_duration_seconds",
+			Help:    "Duration of event processing",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"event_type"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(notificationsProcessed)
+	prometheus.MustRegister(notificationsDelivered)
+	prometheus.MustRegister(activeWebSocketConnections)
+	prometheus.MustRegister(kafkaConsumerLag)
+	prometheus.MustRegister(eventProcessingDuration)
 }
 
-func newWaiterHub() *waiterHub {
-	return &waiterHub{waiters: make(map[string]chan submissionEvent)}
-}
-
-func (h *waiterHub) register(requestID string) chan submissionEvent {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	ch := make(chan submissionEvent, 1)
-	h.waiters[requestID] = ch
-	return ch
-}
-
-func (h *waiterHub) unregister(requestID string) {
-	h.mu.Lock()
-	ch, ok := h.waiters[requestID]
-	if ok {
-		delete(h.waiters, requestID)
-	}
-	h.mu.Unlock()
-
-	if ok {
-		close(ch)
+func NewHub() *Hub {
+	return &Hub{
+		clients:    make(map[*Client]bool),
+		broadcast:  make(chan []byte, 256),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
 	}
 }
 
-func (h *waiterHub) deliver(ev submissionEvent) {
-	h.mu.Lock()
-	ch, ok := h.waiters[ev.RequestID]
-	if ok {
-		delete(h.waiters, ev.RequestID)
-	}
-	h.mu.Unlock()
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client] = true
+			h.mu.Unlock()
+			activeWebSocketConnections.Inc()
+			log.Printf("Client registered. Total clients: %d\n", len(h.clients))
 
-	if !ok {
-		return
-	}
-
-	select {
-	case ch <- ev:
-	default:
-	}
-	close(ch)
-}
-
-var notificationHub = newWaiterHub()
-
-func kafkaBrokers() []string {
-	brokersEnv := os.Getenv("KAFKA_BROKERS")
-	if brokersEnv == "" {
-		brokersEnv = "localhost:9092"
-	}
-
-	parts := strings.Split(brokersEnv, ",")
-	brokers := make([]string, 0, len(parts))
-	for _, part := range parts {
-		broker := strings.TrimSpace(part)
-		if broker != "" {
-			brokers = append(brokers, broker)
-		}
-	}
-
-	return brokers
-}
-
-func kafkaTopic() string {
-	if topic := os.Getenv("KAFKA_TOPIC"); topic != "" {
-		return topic
-	}
-	return submissionTopicDefault
-}
-
-func dialKafkaBroker() (*kafka.Conn, error) {
-	brokers := kafkaBrokers()
-	if len(brokers) == 0 {
-		return nil, errors.New("no kafka brokers configured")
-	}
-
-	var lastErr error
-	for _, broker := range brokers {
-		conn, err := kafka.Dial("tcp", broker)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-	}
-
-	return nil, lastErr
-}
-
-func connectKafkaWithRetry() {
-	var lastErr error
-	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
-		conn, err := dialKafkaBroker()
-		if err == nil {
-			_ = conn.Close()
-			log.Println("Kafka connected")
-			return
-		}
-
-		lastErr = err
-		log.Printf("Kafka connection failed (attempt %d/%d): %v", attempt, maxReconnectAttempts, err)
-		if attempt < maxReconnectAttempts {
-			time.Sleep(time.Duration(attempt) * reconnectBackoff)
-		}
-	}
-
-	log.Fatal("Failed to connect to Kafka after retries:", lastErr)
-}
-
-func startKafkaNotificationListener() *kafka.Reader {
-	connectKafkaWithRetry()
-
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     kafkaBrokers(),
-		Topic:       kafkaTopic(),
-		Partition:   0,
-		StartOffset: kafka.LastOffset,
-		MinBytes:    1,
-		MaxBytes:    10e6,
-	})
-
-	go func() {
-		retryCount := 0
-		for {
-			msg, err := reader.ReadMessage(context.Background())
-			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					return
-				}
-				if errors.Is(err, io.EOF) {
-					log.Printf("Kafka connection closed, retrying...")
-				} else {
-					log.Printf("Kafka read error: %v", err)
-				}
-
-				retryCount++
-				if retryCount >= maxReconnectAttempts {
-					log.Fatal("Failed to read from Kafka after retries:", err)
-				}
-				time.Sleep(time.Duration(retryCount) * reconnectBackoff)
-				continue
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.send)
+				activeWebSocketConnections.Dec()
 			}
+			h.mu.Unlock()
+			log.Printf("Client unregistered. Total clients: %d\n", len(h.clients))
 
-			retryCount = 0
-			var ev submissionEvent
-			if err := json.Unmarshal(msg.Value, &ev); err != nil {
-				log.Printf("Kafka message parse error: %v (value=%s)", err, string(msg.Value))
-				continue
-			}
-			if ev.RequestID == "" {
-				var legacy legacySubmissionEvent
-				if err := json.Unmarshal(msg.Value, &legacy); err == nil && legacy.RequestID != "" {
-					ev.RequestID = legacy.RequestID
-					ev.Status = legacy.Status
-					ev.Message = legacy.Message
+		case message := <-h.broadcast:
+			h.mu.RLock()
+			for client := range h.clients {
+				select {
+				case client.send <- message:
+					notificationsDelivered.WithLabelValues("success").Inc()
+				default:
+					h.mu.RUnlock()
+					h.unregister <- client
+					h.mu.RLock()
+					notificationsDelivered.WithLabelValues("failed").Inc()
 				}
 			}
-			if ev.RequestID == "" {
-				log.Printf("Kafka message missing request_id (value=%s)", string(msg.Value))
-				continue
-			}
-
-			notificationHub.deliver(ev)
+			h.mu.RUnlock()
 		}
+	}
+}
+
+// SendToUser sends notification to specific user
+func (h *Hub) SendToUser(userID uint, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		if client.userID == userID {
+			select {
+			case client.send <- message:
+				notificationsDelivered.WithLabelValues("success").Inc()
+			default:
+				notificationsDelivered.WithLabelValues("failed").Inc()
+			}
+		}
+	}
+}
+
+// WritePump sends messages to WebSocket client
+func (c *Client) WritePump() {
+	defer func() {
+		c.conn.Close()
 	}()
 
-	return reader
-}
-
-func waitTimeout() time.Duration {
-	if raw := os.Getenv("NOTIFICATION_WAIT_MS"); raw != "" {
-		if ms, err := strconv.Atoi(raw); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
+	for message := range c.send {
+		if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			log.Printf("WebSocket write error: %v\n", err)
+			return
 		}
 	}
-	return waitTimeoutDefault
 }
 
-func WaitForNotification(c *fiber.Ctx) error {
-	requestID := strings.TrimSpace(c.Query("request_id"))
-	if requestID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "request_id is required"})
-	}
+// ReadPump reads messages from WebSocket client
+func (c *Client) ReadPump() {
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
 
-	ttl := waitTimeout()
-
-	ch := notificationHub.register(requestID)
-	defer notificationHub.unregister(requestID)
-
-	select {
-	case ev, ok := <-ch:
-		if ok {
-			return c.Status(fiber.StatusOK).JSON(fiber.Map{
-				"status":     "done",
-				"request_id": requestID,
-				"event":      ev,
-			})
+	for {
+		_, _, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket read error: %v\n", err)
+			}
+			break
 		}
-	case <-time.After(ttl):
-	case <-c.Context().Done():
+	}
+}
+
+// ConnectDB establishes database connection
+func ConnectDB() error {
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		dsn = "host=localhost user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable"
 	}
 
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-		"status":     "queued",
-		"request_id": requestID,
-		"timeout_ms": int(ttl.Milliseconds()),
+	var err error
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
+		DisableForeignKeyConstraintWhenMigrating: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Auto-migrate models
+	if err := DB.AutoMigrate(
+		&models.Notification{},
+	); err != nil {
+		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	log.Println("✓ Database connected and migrated")
+	return nil
+}
+
+// ConnectKafka establishes Kafka connections for multiple topics
+func ConnectKafka() error {
+	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	if len(brokers) == 0 || brokers[0] == "" {
+		brokers = []string{"localhost:9092"}
+	}
+
+	groupID := os.Getenv("KAFKA_GROUP_ID")
+	if groupID == "" {
+		groupID = "notification_service"
+	}
+
+	// Topics to subscribe
+	topics := []string{
+		"submission.events",
+		"media.events",
+	}
+
+	for _, topic := range topics {
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:        brokers,
+			Topic:          topic,
+			GroupID:        groupID,
+			MinBytes:       1,
+			MaxBytes:       10e6, // 10MB
+			CommitInterval: time.Second,
+			StartOffset:    kafka.LastOffset,
+		})
+
+		KafkaReaders = append(KafkaReaders, reader)
+		log.Printf("✓ Kafka reader created for topic: %s\n", topic)
+	}
+
+	return nil
+}
+
+// ProcessKafkaEvents processes events from Kafka topics
+func ProcessKafkaEvents(ctx context.Context, reader *kafka.Reader) {
+	topic := reader.Config().Topic
+	log.Printf("Starting event consumer for topic: %s\n", topic)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Stopping consumer for topic: %s\n", topic)
+			return
+		default:
+			m, err := reader.FetchMessage(ctx)
+			if err != nil {
+				if err == context.Canceled {
+					return
+				}
+				log.Printf("Error fetching message from %s: %v\n", topic, err)
+				continue
+			}
+
+			go handleKafkaMessage(ctx, reader, m, topic)
+		}
+	}
+}
+
+// handleKafkaMessage processes individual Kafka message
+func handleKafkaMessage(ctx context.Context, reader *kafka.Reader, m kafka.Message, topic string) {
+	timer := prometheus.NewTimer(eventProcessingDuration.WithLabelValues(topic))
+	defer timer.ObserveDuration()
+
+	log.Printf("Received message from %s: %s\n", topic, string(m.Value))
+
+	var notification *models.Notification
+
+	switch topic {
+	case "submission.events":
+		notification = handleSubmissionEvent(m.Value)
+	case "media.events":
+		notification = handleMediaEvent(m.Value)
+	default:
+		log.Printf("Unknown topic: %s\n", topic)
+		notificationsProcessed.WithLabelValues(topic, "ignored").Inc()
+	}
+
+	if notification != nil {
+		if err := DB.Create(notification).Error; err != nil {
+			log.Printf("Failed to save notification: %v\n", err)
+			notificationsProcessed.WithLabelValues(topic, "error").Inc()
+		} else {
+			log.Printf("✓ Notification saved: %s\n", notification.Title)
+			notificationsProcessed.WithLabelValues(topic, "success").Inc()
+
+			notifJSON, _ := json.Marshal(notification)
+			NotificationHub.SendToUser(notification.UserID, notifJSON)
+		}
+	}
+
+	if err := reader.CommitMessages(ctx, m); err != nil {
+		log.Printf("Failed to commit message: %v\n", err)
+	}
+}
+
+// handleSubmissionEvent processes submission events
+func handleSubmissionEvent(data []byte) *models.Notification {
+	var event struct {
+		RequestID string `json:"request_id"`
+		Status    string `json:"status"`
+		Message   string `json:"message"`
+		UserID    uint   `json:"user_id,omitempty"`
+		ReportID  uint   `json:"report_id,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse submission event: %v\n", err)
+		return nil
+	}
+
+	if event.Status != "success" && event.Status != "error" {
+		return nil
+	}
+
+	userID := event.UserID
+	if userID == 0 {
+		userID = 1
+	}
+
+	title := "Report Submission"
+	if event.Status == "success" {
+		title = "Report Submitted Successfully"
+	} else {
+		title = "Report Submission Failed"
+	}
+
+	var reportID *uint
+	if event.ReportID > 0 {
+		reportID = &event.ReportID
+	}
+
+	return &models.Notification{
+		UserID:    userID,
+		Type:      "report_" + event.Status,
+		Title:     title,
+		Message:   event.Message,
+		ReportID:  reportID,
+		CreatedAt: time.Now(),
+	}
+}
+
+// handleMediaEvent processes media events
+func handleMediaEvent(data []byte) *models.Notification {
+	var event models.MediaProcessingEvent
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse media event: %v\n", err)
+		return nil
+	}
+
+	if event.Status != "completed" && event.Status != "failed" {
+		return nil
+	}
+
+	var media models.ReportMedia
+	if err := DB.Where("object_key = ?", event.OriginalKey).Preload("Report").First(&media).Error; err != nil {
+		log.Printf("Failed to find media: %v\n", err)
+		return nil
+	}
+
+	title := "Media Processed"
+	message := fmt.Sprintf("Thumbnail generated for your media")
+	if event.Status == "failed" {
+		title = "Media Processing Failed"
+		message = fmt.Sprintf("Failed to process media: %s", event.ErrorMessage)
+	}
+
+	var reportID *uint
+	if media.ReportID > 0 {
+		reportID = &media.ReportID
+	}
+
+	userID := uint(1)
+	if media.Report.UserID > 0 {
+		userID = media.Report.UserID
+	}
+
+	return &models.Notification{
+		UserID:    userID,
+		Type:      "media_" + event.Status,
+		Title:     title,
+		Message:   message,
+		ReportID:  reportID,
+		CreatedAt: time.Now(),
+	}
+}
+
+// GetNotificationsHandler returns notifications for a user
+func GetNotificationsHandler(c *fiber.Ctx) error {
+	userID := c.Query("user_id", "1")
+	limit := c.QueryInt("limit", 50)
+	offset := c.QueryInt("offset", 0)
+
+	var notifications []models.Notification
+	query := DB.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset)
+
+	if err := query.Find(&notifications).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to fetch notifications",
+		})
+	}
+
+	var stats models.NotificationStats
+	DB.Model(&models.Notification{}).Where("user_id = ?", userID).Count(&stats.TotalNotifications)
+	DB.Model(&models.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&stats.UnreadNotifications)
+
+	return c.JSON(fiber.Map{
+		"notifications": notifications,
+		"stats":         stats,
+	})
+}
+
+// MarkAsReadHandler marks notification as read
+func MarkAsReadHandler(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	if err := DB.Model(&models.Notification{}).Where("notification_id = ?", id).Update("is_read", true).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to update notification",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+	})
+}
+
+// WebSocketHandler handles WebSocket connections
+func WebSocketHandler(c *websocket.Conn) {
+	userID := c.Query("user_id", "1")
+	var uid uint
+	fmt.Sscanf(userID, "%d", &uid)
+
+	client := &Client{
+		hub:    NotificationHub,
+		conn:   c,
+		send:   make(chan []byte, 256),
+		userID: uid,
+	}
+
+	NotificationHub.register <- client
+
+	go client.WritePump()
+	client.ReadPump()
+}
+
+// HealthHandler returns service health
+func HealthHandler(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{
+		"status":    "healthy",
+		"service":   "notification_service",
+		"timestamp": time.Now(),
 	})
 }
 
 func main() {
-	kafkaReader := startKafkaNotificationListener()
-	defer func() {
-		if err := kafkaReader.Close(); err != nil {
-			log.Printf("Failed to close Kafka reader: %v", err)
-		}
-	}()
+	log.Println("Starting Notification Service...")
+
+	if err := ConnectDB(); err != nil {
+		log.Fatalf("Database connection failed: %v", err)
+	}
+
+	NotificationHub = NewHub()
+	go NotificationHub.Run()
+
+	if err := ConnectKafka(); err != nil {
+		log.Fatalf("Kafka connection failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, reader := range KafkaReaders {
+		go ProcessKafkaEvents(ctx, reader)
+	}
 
 	app := fiber.New()
 
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "*",
-		AllowMethods: "*",
-	}))
+	app.Use(recover.New())
+	app.Use(cors.New())
 
-	app.Get("/notifications/wait", WaitForNotification)
+	app.Get("/health", HealthHandler)
+	app.Get("/notifications", GetNotificationsHandler)
+	app.Put("/notifications/:id/read", MarkAsReadHandler)
 
-	log.Fatal(app.Listen(":3002"))
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
+	app.Get("/ws", websocket.New(WebSocketHandler))
+
+	app.Get("/metrics", func(c *fiber.Ctx) error {
+		metrics, err := prometheus.DefaultGatherer.Gather()
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
+		c.Set("Content-Type", string(expfmt.FmtText))
+		encoder := expfmt.NewEncoder(c.Response().BodyWriter(), expfmt.FmtText)
+		for _, mf := range metrics {
+			if err := encoder.Encode(mf); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		log.Println("Shutting down gracefully...")
+		cancel()
+
+		for _, reader := range KafkaReaders {
+			reader.Close()
+		}
+
+		app.Shutdown()
+	}()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3003"
+	}
+
+	log.Printf("Notification Service listening on port %s\n", port)
+	if err := app.Listen(":" + port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

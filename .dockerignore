@@ -1,0 +1,32 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+
+# Testing
+load-testing/results
+*.test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Kubernetes
+k8s/
+
+# Don't ignore go.sum files - they're needed for builds
+!go.sum
