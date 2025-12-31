@@ -204,10 +204,55 @@ func CreateReport(c *fiber.Ctx) error {
 func GetReports(c *fiber.Ctx) error {
 	var reports []models.Report
 
-	if err := DB.Find(&reports).Error; err != nil {
+	userID, err := userIDFromLocals(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+
+	//DB Find should only return reports that are flagged as public or is reported by user
+	if err := DB.Where("is_public = ? OR user_id = ?", true, userID).Find(&reports).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(reports)
+}
+
+func GetReportDetails(c *fiber.Ctx) error {
+	var report models.Report
+
+	userID, err := userIDFromLocals(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+
+	reportIDRaw, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil || reportIDRaw == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid report id"})
+	}
+	reportID := uint(reportIDRaw)
+
+	if err := DB.Where("report_id = ?", reportID).First(&report).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "report not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	var assignment models.ReportAssignment
+	assignedToUser := false
+	if err := DB.Where("report_id = ? AND assigned_to = ?", reportID, userID).First(&assignment).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	} else {
+		assignedToUser = true
+	}
+
+	// Allow access to public reports, the owner, or the assigned user.
+	if !report.IsPublic && report.UserID != userID && !assignedToUser {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+	}
+
+	return c.JSON(report)
 }
 
 func main() {
@@ -223,7 +268,9 @@ func main() {
 	}))
 
 	app.Post("/reports", middleware.Protected(), CreateReport)
-	app.Get("/reports", GetReports)
+	app.Get("/reports", middleware.Protected(), GetReports)
+	app.Get("/reports/:id", middleware.Protected(), GetReportDetails)
+	app.Get("/api/reports/:id", middleware.Protected(), GetReportDetails)
 
 	log.Fatal(app.Listen(":3001"))
 }

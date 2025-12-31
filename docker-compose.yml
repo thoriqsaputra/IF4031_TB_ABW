@@ -60,6 +60,23 @@ services:
     networks:
       - app_net
 
+  report_sync_service:
+    build:
+      context: .
+      dockerfile: agarthan/report_sync_service/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_INDEX: reports
+      SYNC_INTERVAL: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_started
+    networks:
+      - app_net
+
   notification_service:
     build:
       context: .
@@ -157,8 +174,33 @@ services:
     networks:
       - app_net
 
+  opensearch:
+    image: opensearchproject/opensearch:3.4.0
+    container_name: opensearch
+    environment:
+      discovery.type: single-node
+      node.name: opensearch
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DISABLE_INSTALL_DEMO_CONFIG: true # Prevents execution of bundled demo script which installs demo certificates and security configurations to OpenSearch
+      DISABLE_SECURITY_PLUGIN: true
+    ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
+      nofile:
+        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - 9200:9200
+      - 9600:9600
+    networks:
+      - app_net
+
 volumes:
   postgres_data:
+  opensearch-data:
 
 networks:
   app_net:

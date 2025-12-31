@@ -1,19 +1,18 @@
 POST http://localhost:3001/reports HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjcxMTQ4NDMsInJvbGUiOiIiLCJ1c2VyX2lkIjoyfQ.biLzf9iKdxH-cb3Bi-mPQCNUZcXLIVTFGGaAv020AgQ
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjcyMjg1MjksInJvbGUiOiIiLCJ1c2VyX2lkIjoxfQ.TU_Uuk8hkOY9sF7hOwn-6n_5a333VEgZR9Oyf83cbTU
 content-type: application/json
 
 {
-  "title": "Broken headlight",
+  "title": "Broken thingamajig",
   "description": "The headlight on 5th Ave is out at night.",
   "is_public": true,
   "is_anon": false,
   "location": "5th Ave and Pine St",
-  "severity": "medium",
-  "report_categories_id": 1,
-  "user_id": 1
+  "severity": "high",
+  "report_categories_id": 1
 }
 
 ###
 
 GET http://localhost:8080/reports HTTP/1.1
-
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjcyMjg1MjksInJvbGUiOiIiLCJ1c2VyX2lkIjoxfQ.TU_Uuk8hkOY9sF7hOwn-6n_5a333VEgZR9Oyf83cbTU
