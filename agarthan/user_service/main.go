@@ -36,11 +36,34 @@ func ConnectDB() {
 	log.Println("Database ceonnected")
 }
 
-func CreateUser(c *fiber.Ctx) error {
-	user := new(models.User)
+type createUserInput struct {
+	Name         string `json:"name"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	RoleID       uint   `json:"role_id"`
+	DepartmentID uint   `json:"department_id"`
+	IsActive     *bool  `json:"is_active"`
+}
 
-	if err := c.BodyParser(user); err != nil {
+func CreateUser(c *fiber.Ctx) error {
+	var input createUserInput
+
+	if err := c.BodyParser(&input); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	user := models.User{
+		Name:         input.Name,
+		Email:        input.Email,
+		Password:     input.Password,
+		RoleID:       input.RoleID,
+		DepartmentID: input.DepartmentID,
+		IsActive:     isActive,
 	}
 
 	if err := DB.Create(&user).Error; err != nil {

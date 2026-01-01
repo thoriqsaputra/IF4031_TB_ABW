@@ -18,6 +18,9 @@ if [ "$ready" = "yes" ]; then
     /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
         --create --if-not-exists --topic submission.events \
         --replication-factor 1 --partitions 1
+    /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+        --create --if-not-exists --topic report.published \
+        --replication-factor 1 --partitions 1
 else
     echo "Kafka broker did not become ready in time; skipping topic creation."
 fi

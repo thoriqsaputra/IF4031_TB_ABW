@@ -144,6 +144,10 @@ a {
   align-items: center;
 }
 
+.staff-hero {
+  align-items: start;
+}
+
 .hero h1 {
   font-family: "Fraunces", "Georgia", serif;
   font-size: clamp(32px, 5vw, 54px);
@@ -209,6 +213,19 @@ a {
 
 .panel button:hover {
   transform: translateY(-1px);
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  color: var(--ink);
 }
 
 .form-message {

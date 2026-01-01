@@ -24,6 +24,15 @@ type ReportAssignment struct {
 	ReportID     uint      `json:"report_id"`
 }
 
+type ReportResponse struct {
+	ReportResponseID uint      `gorm:"primaryKey;column:report_response_id" json:"report_response_id"`
+	Message          string    `gorm:"type:text" json:"message"`
+	CreatedAt        time.Time `json:"created_at"`
+	CreatedBy        uint      `json:"created_by"`
+	ReportID         uint      `json:"report_id"`
+	JobStatus		 string    `json:"job_status"`
+}
+
 type Report struct {
 	ReportID    uint      `gorm:"primaryKey;column:report_id" json:"report_id"`
 	Title       string    `json:"title"`
@@ -46,6 +55,17 @@ type Report struct {
 type ReportRequestMessage struct {
 	RequestID string `json:"request_id"`
 	Report    Report `json:"report"`
+}
+
+type ReportResponseRequestMessage struct {
+	RequestID string         `json:"request_id"`
+	Response  ReportResponse `json:"response"`
+}
+
+type ReportPublishedEvent struct {
+	ReportID         uint      `json:"report_id"`
+	ReportCategoryID uint      `json:"report_categories_id"`
+	PublishedAt      time.Time `json:"published_at"`
 }
 
 type Upvote struct {

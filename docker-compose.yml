@@ -63,11 +63,28 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       KAFKA_BROKERS: kafka:19092
       KAFKA_TOPIC: submission.events
+      KAFKA_REPORT_PUBLISHED_TOPIC: report.published
     depends_on:
       postgres:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - app_net
+
+  workforce_rotation:
+    build:
+      context: .
+      dockerfile: agarthan/workforce_rotation/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      KAFKA_BROKERS: kafka:19092
+      KAFKA_REPORT_PUBLISHED_TOPIC: report.published
+    depends_on:
+      postgres:
+        condition: service_started
       kafka:
         condition: service_healthy
     networks:
@@ -164,6 +181,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
       CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+      KAFKA_INTER_BROKER_PROTOCOL_VERSION: "3.7"
+      KAFKA_LOG_MESSAGE_FORMAT_VERSION: "3.7"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
