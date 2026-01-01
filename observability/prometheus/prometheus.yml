@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'agarthan'
+    environment: 'development'
+
+# Scrape configurations
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  - job_name: 'user_service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['user_service:3000']
+        labels:
+          service: 'user_service'
+          tier: 'application'
+
+  - job_name: 'report_service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['report_service:3001']
+        labels:
+          service: 'report_service'
+          tier: 'application'
+
+  - job_name: 'media_service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['media_service:3002']
+        labels:
+          service: 'media_service'
+          tier: 'application'
+
+  - job_name: 'notification_service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['notification_service:3003']
+        labels:
+          service: 'notification_service'
+          tier: 'application'
+
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres_exporter:9187']
+
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+          tier: 'infrastructure'
+
+  # - job_name: 'minio'
+  #   metrics_path: '/minio/v2/metrics/cluster'
+  #   static_configs:
+  #     - targets: ['minio:9000']
