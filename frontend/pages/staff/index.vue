@@ -187,7 +187,7 @@ watch(token, (value) => {
         :key="assignment.report_id || index"
         class="card"
         :style="{ '--i': index }"
-        :to="`/details/${assignment.report_id}`"
+        :to="`/staff/reports/${assignment.report_id}`"
       >
         <div class="meta">
           <span class="pill">{{ assignment.status || "Assigned" }}</span>
