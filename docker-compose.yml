@@ -10,8 +10,6 @@ services:
       - postgres
     networks:
       - app_net
-    ports:
-      - "3000:3000"
 
   report_service:
     build:
@@ -27,8 +25,23 @@ services:
           condition: service_healthy
     networks:
       - app_net
-    ports:
-      - "3001:3001"
+
+  search_service:
+    build:
+      context: .
+      dockerfile: agarthan/search_service/Dockerfile
+    environment:
+      DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      READ_DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
+      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_INDEX: reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_started
+    networks:
+      - app_net
 
   auth_service:
     build:
@@ -82,11 +95,14 @@ services:
     image: nginx:1.27-alpine
     volumes:
       - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - auth_service
-      - user_service
-      - report_service
-      - notification_service
+      - ./frontend:/usr/share/nginx/html:ro
+    # depends_on:
+    #   - auth_service
+    #   - user_service
+    #   - report_service
+    #   - search_service
+    #   - notification_service
+    #   - frontend
     networks:
       - app_net
     ports:
@@ -137,6 +153,18 @@ services:
       - "3003:3003"
 
   # ========== Infrastructure Services ==========
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3005"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3005:3005"
+    networks:
+      - app_net
 
   rabbitmq:
     image: rabbitmq:3.13-management
