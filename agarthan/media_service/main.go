@@ -452,19 +452,13 @@ func UploadHandler(c *fiber.Ctx) error {
 
 	uploadCounter.WithLabelValues("success", mediaType).Inc()
 
-	presignedURL, _ := MinioClient.PresignedGetObject(
-		c.Context(),
-		BucketName,
-		objectKey,
-		time.Hour,
-		nil,
-	)
+	mediaURL := fmt.Sprintf("/media/%s", objectKey)
 
 	response := models.MediaUploadResponse{
 		ReportMediaID: reportMedia.ReportMediaID,
 		ObjectKey:     objectKey,
 		MediaType:     mediaType,
-		URL:           presignedURL.String(),
+		URL:           mediaURL,
 	}
 
 	if jobID > 0 {
@@ -485,24 +479,14 @@ func GetMediaHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	presignedURL, err := MinioClient.PresignedGetObject(
-		c.Context(),
-		BucketName,
-		media.ObjectKey,
-		time.Hour,
-		nil,
-	)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Failed to generate download URL",
-		})
-	}
+	// Return URL using nginx proxy path
+	mediaURL := fmt.Sprintf("/media/%s", media.ObjectKey)
 
 	return c.JSON(fiber.Map{
 		"report_media_id": media.ReportMediaID,
 		"media_type":      media.MediaType,
 		"object_key":      media.ObjectKey,
-		"url":             presignedURL.String(),
+		"url":             mediaURL,
 		"created_at":      media.CreatedAt,
 	})
 }
@@ -518,26 +502,17 @@ func GetReportMediaHandler(c *fiber.Ctx) error {
 		})
 	}
 
-	// Generate presigned URLs for each media
+	// Generate URLs for each media using nginx proxy path
 	results := make([]fiber.Map, 0)
 	for _, media := range mediaList {
-		presignedURL, err := MinioClient.PresignedGetObject(
-			c.Context(),
-			BucketName,
-			media.ObjectKey,
-			time.Hour,
-			nil,
-		)
-		if err != nil {
-			log.Printf("Failed to generate URL for media %d: %v\n", media.ReportMediaID, err)
-			continue
-		}
+		// Use nginx proxy path instead of presigned URLs
+		mediaURL := fmt.Sprintf("/media/%s", media.ObjectKey)
 
 		results = append(results, fiber.Map{
 			"report_media_id": media.ReportMediaID,
 			"media_type":      media.MediaType,
 			"object_key":      media.ObjectKey,
-			"url":             presignedURL.String(),
+			"url":             mediaURL,
 			"created_at":      media.CreatedAt,
 		})
 	}
@@ -551,12 +526,66 @@ func GetReportMediaHandler(c *fiber.Ctx) error {
 // HealthHandler returns service health status
 func HealthHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
-		"status": "healthy",
-		"service": "media_service",
+		"status":    "healthy",
+		"service":   "media_service",
 		"timestamp": time.Now(),
 	})
 }
 
+// ServeMediaFile serves the actual media file from MinIO
+func ServeMediaFile(c *fiber.Ctx) error {
+	objectKey := c.Params("objectkey")
+
+	if objectKey == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Object key is required",
+		})
+	}
+
+	log.Printf("Serving media file: %s\n", objectKey)
+
+	// Get object from MinIO
+	object, err := MinioClient.GetObject(
+		c.Context(),
+		BucketName,
+		objectKey,
+		minio.GetObjectOptions{},
+	)
+	if err != nil {
+		log.Printf("Failed to get object %s: %v\n", objectKey, err)
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Media not found",
+		})
+	}
+	defer object.Close()
+
+	// Get object info for content type
+	objectInfo, err := object.Stat()
+	if err != nil {
+		log.Printf("Failed to get object info %s: %v\n", objectKey, err)
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to retrieve media",
+		})
+	}
+
+	log.Printf("Serving file %s, type: %s, size: %d\n", objectKey, objectInfo.ContentType, objectInfo.Size)
+
+	// Set content type and headers
+	c.Set("Content-Type", objectInfo.ContentType)
+	c.Set("Content-Length", fmt.Sprintf("%d", objectInfo.Size))
+	c.Set("Cache-Control", "public, max-age=31536000")
+
+	// Read and send the file content
+	fileBytes, err := io.ReadAll(object)
+	if err != nil {
+		log.Printf("Failed to read object %s: %v\n", objectKey, err)
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to read media",
+		})
+	}
+
+	return c.Send(fileBytes)
+}
 func main() {
 	log.Println("Starting Media Service...")
 
@@ -583,6 +612,7 @@ func main() {
 	app.Post("/upload", UploadHandler)
 	app.Get("/media/:id", GetMediaHandler)
 	app.Get("/reports/:report_id/media", GetReportMediaHandler)
+	app.Get("/serve/:objectkey", ServeMediaFile) // Serve actual media files
 
 	app.Get("/metrics", func(c *fiber.Ctx) error {
 		metrics, err := prometheus.DefaultGatherer.Gather()

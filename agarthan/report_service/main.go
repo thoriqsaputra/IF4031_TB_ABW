@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"database"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -209,36 +209,42 @@ func CreateReport(c *fiber.Ctx) error {
 	}
 
 	report.UserID = userID
+	report.Status = "pending" // Set default status
 
-	requestID := uuid.NewString()
-	message := models.ReportRequestMessage{
-		RequestID: requestID,
-		Report:    *report,
+	if err := DB.Omit("User", "ReportCategory", "AssignedUser").Create(&report).Error; err != nil {
+		log.Printf("Failed to create report: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create report"})
 	}
 
-	payload, err := json.Marshal(message)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+	log.Printf("Report created successfully with ID: %d\n", report.ReportID)
 
-	err = RabbitChannel.Publish(
-		"",
-		reportQueueName,
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Body:         payload,
-		},
-	)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
+	go func() {
+		requestID := uuid.NewString()
+		event := map[string]interface{}{
+			"request_id": requestID,
+			"report_id":  report.ReportID,
+			"user_id":    report.UserID,
+			"status":     "created",
+			"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		}
 
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-		"status":     "queued",
-		"request_id": requestID,
+		eventJSON, err := json.Marshal(event)
+		if err != nil {
+			log.Printf("Failed to marshal submission event: %v\n", err)
+			return
+		}
+
+		if err := PublishKafkaEvent("report.submissions", fmt.Sprintf("%d", report.ReportID), eventJSON); err != nil {
+			log.Printf("Failed to publish submission event: %v\n", err)
+		} else {
+			log.Printf("Published submission event for report %d\n", report.ReportID)
+		}
+	}()
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"status":    "created",
+		"report_id": report.ReportID,
+		"message":   "Report created successfully",
 	})
 }
 
@@ -682,7 +688,7 @@ func main() {
 	ConnectRabbit()
 	ConnectDB()
 	ConnectKafka()
-	database.ConnectRedis()
+	// database.ConnectRedis()
 
 	app := fiber.New()
 
