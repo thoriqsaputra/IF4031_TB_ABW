@@ -33,15 +33,19 @@ type Report struct {
 	IsAnonymous bool      `json:"is_anon"`
 	Location    string    `json:"location"`
 	Severity    string    `json:"severity"`
+	Status      string    `gorm:"default:'pending'" json:"status"` // pending, in_progress, resolved, rejected
+	AssignedTo  *uint     `json:"assigned_to"`                     // government official assigned to handle
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// foreign keys
 	ReportCategoryID uint `gorm:"column:report_categories_id" json:"report_categories_id"`
 	UserID           uint `json:"user_id"`
 
 	// relations
-	User           User           `gorm:"foreignKey:UserID"`
-	ReportCategory ReportCategory `gorm:"foreignKey:ReportCategoryID"`
+	User           User           `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ReportCategory ReportCategory `gorm:"foreignKey:ReportCategoryID" json:"report_category,omitempty"`
+	AssignedUser   *User          `gorm:"foreignKey:AssignedTo" json:"assigned_user,omitempty"`
 }
 
 type ReportRequestMessage struct {
@@ -63,4 +67,37 @@ type Escalation struct {
 	EscalatedAt      time.Time `json:"escalated_at"`
 	Reason           string    `json:"reason"`
 	ReportID         uint      `json:"report_id"`
+}
+
+// Kafka Event Models for Notifications
+type ReportStatusChangeEvent struct {
+	ReportID    uint   `json:"report_id"`
+	OldStatus   string `json:"old_status"`
+	NewStatus   string `json:"new_status"`
+	ChangedBy   uint   `json:"changed_by"`
+	UserID      uint   `json:"user_id"`      // Original reporter
+	IsAnonymous bool   `json:"is_anonymous"` // For privacy
+	Title       string `json:"title"`
+	Timestamp   string `json:"timestamp"`
+}
+
+type ReportAssignmentEvent struct {
+	ReportID     uint   `json:"report_id"`
+	AssignedTo   uint   `json:"assigned_to"`
+	AssignedBy   uint   `json:"assigned_by"`
+	DepartmentID uint   `json:"department_id"`
+	Title        string `json:"title"`
+	Severity     string `json:"severity"`
+	Timestamp    string `json:"timestamp"`
+}
+
+type ReportEscalationEvent struct {
+	ReportID         uint   `json:"report_id"`
+	FromDepartmentID uint   `json:"from_department_id"`
+	ToDepartmentID   uint   `json:"to_department_id"`
+	Reason           string `json:"reason"`
+	EscalatedBy      uint   `json:"escalated_by"`
+	Title            string `json:"title"`
+	Severity         string `json:"severity"`
+	Timestamp        string `json:"timestamp"`
 }

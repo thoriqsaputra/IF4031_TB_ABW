@@ -27,8 +27,8 @@ type User struct {
 	RoleID       uint `json:"role_id"`
 	DepartmentID *uint `json:"department_id"`
 
-	Role       Role       `gorm:"foreignKey:RoleID"`
-	Department *Department `gorm:"foreignKey:DepartmentID"`
+	Role       Role        `gorm:"foreignKey:RoleID;references:RoleID" json:"role"`
+	Department *Department `gorm:"foreignKey:DepartmentID;references:DepartmentID" json:"department,omitempty"`
 }
 
 type Performance struct {
