@@ -296,6 +296,8 @@ services:
       - report_service
       - media_service
       - notification_service
+    networks:
+      - app_net
 
   grafana:
     image: grafana/grafana:latest
@@ -312,6 +314,8 @@ services:
     depends_on:
       - prometheus
       - loki
+    networks:
+      - app_net
 
   loki:
     image: grafana/loki:latest
@@ -321,6 +325,8 @@ services:
       - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - app_net
 
   promtail:
     image: grafana/promtail:latest
@@ -331,6 +337,8 @@ services:
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
+    networks:
+      - app_net
 
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -347,6 +355,8 @@ services:
       - "9411:9411"
     volumes:
       - jaeger_data:/tmp
+    networks:
+      - app_net
 
 volumes:
   postgres_data:
