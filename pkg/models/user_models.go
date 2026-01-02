@@ -10,6 +10,10 @@ type Role struct {
 type Department struct {
 	DepartmentID uint   `gorm:"primaryKey;column:department_id" json:"department_id"`
 	Name         string `gorm:"type:varchar(100);not null" json:"name"`
+
+	// hierarki
+	ParentID *uint       `json:"parent_id"`
+	Parent   *Department `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
 }
 
 type User struct {
@@ -21,10 +25,10 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	RoleID       uint `json:"role_id"`
-	DepartmentID uint `json:"department_id"`
+	DepartmentID *uint `json:"department_id"`
 
 	Role       Role       `gorm:"foreignKey:RoleID"`
-	Department Department `gorm:"foreignKey:DepartmentID"`
+	Department *Department `gorm:"foreignKey:DepartmentID"`
 }
 
 type Performance struct {
