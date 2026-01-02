@@ -59,6 +59,7 @@ onMounted(() => {
           report detail in a single sweep.
         </p>
         <div class="link-row" style="margin-top: 20px;">
+          <NuxtLink class="ghost-link" to="/register">Create account</NuxtLink>
           <NuxtLink class="ghost-link" to="/feed">Browse public feed</NuxtLink>
           <NuxtLink class="ghost-link" to="/user_reports">My reports</NuxtLink>
         </div>

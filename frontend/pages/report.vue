@@ -15,59 +15,9 @@ const error = ref("");
 const status = ref("");
 const isSubmitting = ref(false);
 const isWaiting = ref(false);
-const requestId = ref("");
-const eventSource = ref(null);
-
-const closeStream = () => {
-  if (eventSource.value) {
-    eventSource.value.close();
-    eventSource.value = null;
-  }
-};
-
-const listenForCompletion = (id) => {
-  if (!process.client) {
-    return;
-  }
-  closeStream();
-  const source = new EventSource(
-    `/api/notifications/stream?request_id=${encodeURIComponent(id)}`
-  );
-  eventSource.value = source;
-
-  source.addEventListener("report", (event) => {
-    try {
-      const payload = JSON.parse(event.data || "{}");
-      const result = payload.event?.status || "success";
-      const message = payload.event?.message || "Report processed.";
-      if (result === "error") {
-        error.value = message;
-        status.value = "";
-      } else {
-        status.value = message;
-      }
-    } catch (err) {
-      status.value = "Report processed.";
-    }
-    isWaiting.value = false;
-    isSubmitting.value = false;
-    closeStream();
-  });
-
-  source.addEventListener("timeout", () => {
-    status.value = "Still queued. Refresh later to confirm status.";
-    isWaiting.value = false;
-    isSubmitting.value = false;
-    closeStream();
-  });
-
-  source.onerror = () => {
-    error.value = "Connection lost while waiting for confirmation.";
-    isWaiting.value = false;
-    isSubmitting.value = false;
-    closeStream();
-  };
-};
+const createdReportId = ref(null);
+const selectedFiles = ref([]);
+const isUploadingMedia = ref(false);
 
 const submitReport = async () => {
   error.value = "";
@@ -103,12 +53,29 @@ const submitReport = async () => {
       },
     });
 
-    requestId.value = response?.request_id || "";
-    if (!requestId.value) {
-      throw new Error("Missing request id");
+    console.log('Report API Response:', response);
+
+    // Report submitted successfully - get report_id from response
+    const reportId = response?.report_id || response?.data?.report_id;
+    console.log('Extracted reportId:', reportId);
+    console.log('Selected files count:', selectedFiles.value.length);
+
+    if (reportId) {
+      createdReportId.value = reportId;
+      status.value = "Report submitted successfully!";
+
+      // Auto-upload selected media files if any
+      if (selectedFiles.value.length > 0) {
+        console.log('Starting media upload for report:', reportId);
+        await uploadSelectedMedia(reportId);
+      }
+    } else {
+      status.value = "Report submitted and queued for processing.";
+      console.warn('No report_id in response, cannot upload media');
     }
-    status.value = "Report submitted. Waiting for confirmation...";
-    listenForCompletion(requestId.value);
+
+    isWaiting.value = false;
+    isSubmitting.value = false;
   } catch (err) {
     error.value =
       err?.data?.error || err?.data?.message || "Failed to submit report.";
@@ -117,12 +84,68 @@ const submitReport = async () => {
   }
 };
 
+const handleFileSelect = (event) => {
+  const files = Array.from(event.target.files || []);
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'video/x-msvideo'];
+
+  const validFiles = files.filter(file => {
+    if (!allowedTypes.includes(file.type)) {
+      error.value = `File type ${file.type} not allowed`;
+      return false;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      error.value = 'File size exceeds 50MB limit';
+      return false;
+    }
+    return true;
+  });
+
+  selectedFiles.value = validFiles.slice(0, 5); // Max 5 files
+};
+
+const removeFile = (index) => {
+  selectedFiles.value.splice(index, 1);
+};
+
+const uploadSelectedMedia = async (reportId) => {
+  if (selectedFiles.value.length === 0) return;
+
+  console.log('uploadSelectedMedia called with reportId:', reportId);
+  isUploadingMedia.value = true;
+  const { uploadFile } = useMedia();
+  let uploadedCount = 0;
+
+  for (const file of selectedFiles.value) {
+    try {
+      console.log('Uploading file:', file.name, 'for report:', reportId);
+      const result = await uploadFile(file, reportId);
+      console.log('Upload result:', result);
+      if (result) {
+        uploadedCount++;
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      error.value = `Failed to upload ${file.name}: ${err.message || 'Unknown error'}`;
+    }
+  }
+
+  isUploadingMedia.value = false;
+  if (uploadedCount > 0) {
+    status.value = `Report created and ${uploadedCount} media file(s) uploaded successfully!`;
+    selectedFiles.value = []; // Clear selected files
+  } else {
+    error.value = 'Failed to upload media files. Check console for details.';
+  }
+};
+
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
 onMounted(() => {
   loadToken();
-});
-
-onBeforeUnmount(() => {
-  closeStream();
 });
 </script>
 
@@ -133,8 +156,7 @@ onBeforeUnmount(() => {
       <span>Send a new field entry</span>
     </div>
     <p>
-      Reports are queued and stored asynchronously. You will see a confirmation
-      as soon as the report is written to the database.
+      Submit a report with optional media attachments. Reports are processed and stored in the database.
     </p>
     <form class="panel report-form" @submit.prevent="submitReport">
       <div class="form-grid">
@@ -181,6 +203,49 @@ onBeforeUnmount(() => {
           <span>Anonymous</span>
         </label>
       </div>
+
+      <!-- Media Upload Section (Optional) -->
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background: rgba(138, 209, 193, 0.05); border-radius: 12px; border: 1px dashed var(--sea);">
+        <label style="display: block; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--ink);">
+          📎 Attach Media (Optional)
+        </label>
+        <p style="font-size: 0.85rem; color: #666; margin: 0 0 1rem 0;">
+          Upload photos or videos to support your report. Max 5 files, 50MB each.
+        </p>
+
+        <input
+          type="file"
+          id="media-files"
+          multiple
+          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/x-msvideo"
+          @change="handleFileSelect"
+          style="display: block; margin-bottom: 1rem; padding: 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: white; width: 100%;"
+        />
+
+        <!-- Selected Files Preview -->
+        <div v-if="selectedFiles.length > 0" style="margin-top: 1rem;">
+          <p style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem;">Selected Files:</p>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div
+              v-for="(file, index) in selectedFiles"
+              :key="index"
+              style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: white; border-radius: 6px; font-size: 0.85rem;"
+            >
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                {{ file.name }} ({{ formatFileSize(file.size) }})
+              </span>
+              <button
+                type="button"
+                @click="removeFile(index)"
+                style="background: var(--sunset); color: white; border: none; border-radius: 4px; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.8rem;"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <button type="submit" :disabled="isSubmitting || !token">
         {{ isSubmitting ? "Submitting..." : "Send report" }}
       </button>
@@ -191,9 +256,10 @@ onBeforeUnmount(() => {
       </p>
     </form>
 
-    <div v-if="isWaiting" class="overlay">
+    <div v-if="isWaiting || isUploadingMedia" class="overlay">
       <div class="spinner"></div>
-      <p>Waiting for confirmation...</p>
+      <p v-if="isUploadingMedia">Uploading media files...</p>
+      <p v-else>Submitting report...</p>
     </div>
   </section>
 </template>

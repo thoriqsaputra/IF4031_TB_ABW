@@ -127,6 +127,31 @@ a {
   transform: translateY(-1px);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.logout-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  background: rgba(17, 17, 17, 0.08);
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+.logout-btn:hover {
+  background: rgba(17, 17, 17, 0.14);
+  transform: translateY(-1px);
+}
+
 .content {
   position: relative;
   z-index: 1;
@@ -222,6 +247,145 @@ a {
 
 .form-message.success {
   color: #1f7a57;
+}
+
+.hint-text {
+  margin: -8px 0 12px;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
+/* Logout Dialog Styles */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(17, 17, 17, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dialog-box {
+  background: var(--card-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-width: 420px;
+  width: 100%;
+  overflow: hidden;
+  animation: dialog-bounce 0.3s ease;
+}
+
+.dialog-header {
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dialog-body {
+  padding: 20px 24px;
+}
+
+.dialog-body p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.dialog-actions {
+  padding: 16px 24px 24px;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.dialog-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 24px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.dialog-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dialog-btn-secondary {
+  background: rgba(17, 17, 17, 0.08);
+  color: var(--ink);
+}
+
+.dialog-btn-secondary:hover:not(:disabled) {
+  background: rgba(17, 17, 17, 0.14);
+}
+
+.dialog-btn-primary {
+  background: linear-gradient(120deg, #e87461, #f3a87c);
+  color: white;
+}
+
+.dialog-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(232, 116, 97, 0.3);
+}
+
+/* Dialog Animations */
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.dialog-fade-enter-from,
+.dialog-fade-leave-to {
+  opacity: 0;
+}
+
+.dialog-fade-enter-active .dialog-box {
+  animation: dialog-bounce 0.3s ease;
+}
+
+.dialog-fade-leave-active .dialog-box {
+  animation: dialog-bounce-out 0.2s ease;
+}
+
+@keyframes dialog-bounce {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-bounce-out {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
 }
 
 .report-form {
@@ -421,6 +585,34 @@ a {
   background: rgba(255, 255, 255, 0.6);
 }
 
+.media-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.media-item {
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.media-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.media-item img {
+  transition: opacity 0.2s ease;
+}
+
+.media-item img:hover {
+  opacity: 0.9;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -455,6 +647,49 @@ a {
   }
 }
 
+/* Additional utility animations for new components */
+.slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sea);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7ac0b0;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sea) #f1f1f1;
+}
+
 @media (max-width: 720px) {
   .topbar {
     flex-direction: column;
@@ -468,6 +703,13 @@ a {
   .nav a {
     flex: 1 1 auto;
     text-align: center;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+    margin-top: 8px;
   }
 
   .search-bar {
