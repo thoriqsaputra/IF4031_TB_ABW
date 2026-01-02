@@ -142,6 +142,38 @@ func GetDepartments(c *fiber.Ctx) error {
 	return c.JSON(depts)
 }
 
+func SeedDatabase() {
+	roles := []models.Role{
+		{RoleID: 1, Name: "citizen"},
+		{RoleID: 2, Name: "government"},
+		{RoleID: 3, Name: "admin"},
+	}
+	for _, role := range roles {
+		DB.FirstOrCreate(&role, models.Role{RoleID: role.RoleID})
+	}
+
+	national := models.Department{DepartmentID: 10000, Name: "Kementerian Pusat", ParentID: nil}
+	DB.FirstOrCreate(&national, models.Department{DepartmentID: 10000})
+
+	parentIDNational := uint(10000)
+	provincial := models.Department{DepartmentID: 1000, Name: "Dinas Provinsi", ParentID: &parentIDNational}
+	DB.FirstOrCreate(&provincial, models.Department{DepartmentID: 1000})
+
+	parentIDProvincial := uint(1000)
+	city := models.Department{DepartmentID: 100, Name: "Dinas Kota", ParentID: &parentIDProvincial}
+	DB.FirstOrCreate(&city, models.Department{DepartmentID: 100})
+
+	parentIDCity := uint(100)
+	district := models.Department{DepartmentID: 10, Name: "Kecamatan", ParentID: &parentIDCity}
+	DB.FirstOrCreate(&district, models.Department{DepartmentID: 10})
+
+	parentIDDistrict := uint(10)
+	village := models.Department{DepartmentID: 1, Name: "Kelurahan", ParentID: &parentIDDistrict}
+	DB.FirstOrCreate(&village, models.Department{DepartmentID: 1})
+
+	log.Println("67")
+}
+
 // example of protected route
 func Profile(c *fiber.Ctx) error {
 	userID := c.Locals("user_id")
@@ -157,6 +189,7 @@ func Profile(c *fiber.Ctx) error {
 func main() {
 	ConnectDB()
 	database.ConnectRedis()
+	SeedDatabase()
 
 	app := fiber.New()
 
