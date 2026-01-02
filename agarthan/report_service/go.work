@@ -4,4 +4,5 @@ use (
 	.
 	../../pkg/middleware
 	../../pkg/models
+	../../pkg/database
 )

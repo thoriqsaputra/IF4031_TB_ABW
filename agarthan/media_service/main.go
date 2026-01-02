@@ -507,6 +507,47 @@ func GetMediaHandler(c *fiber.Ctx) error {
 	})
 }
 
+// GetReportMediaHandler returns all media for a specific report
+func GetReportMediaHandler(c *fiber.Ctx) error {
+	reportID := c.Params("report_id")
+
+	var mediaList []models.ReportMedia
+	if err := DB.Where("report_id = ?", reportID).Find(&mediaList).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to fetch media",
+		})
+	}
+
+	// Generate presigned URLs for each media
+	results := make([]fiber.Map, 0)
+	for _, media := range mediaList {
+		presignedURL, err := MinioClient.PresignedGetObject(
+			c.Context(),
+			BucketName,
+			media.ObjectKey,
+			time.Hour,
+			nil,
+		)
+		if err != nil {
+			log.Printf("Failed to generate URL for media %d: %v\n", media.ReportMediaID, err)
+			continue
+		}
+
+		results = append(results, fiber.Map{
+			"report_media_id": media.ReportMediaID,
+			"media_type":      media.MediaType,
+			"object_key":      media.ObjectKey,
+			"url":             presignedURL.String(),
+			"created_at":      media.CreatedAt,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"media": results,
+		"count": len(results),
+	})
+}
+
 // HealthHandler returns service health status
 func HealthHandler(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
@@ -541,6 +582,7 @@ func main() {
 	app.Get("/health", HealthHandler)
 	app.Post("/upload", UploadHandler)
 	app.Get("/media/:id", GetMediaHandler)
+	app.Get("/reports/:report_id/media", GetReportMediaHandler)
 
 	app.Get("/metrics", func(c *fiber.Ctx) error {
 		metrics, err := prometheus.DefaultGatherer.Gather()

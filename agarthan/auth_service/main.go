@@ -179,8 +179,21 @@ func Profile(c *fiber.Ctx) error {
 	userID := c.Locals("user_id")
 
 	var user models.User
-	if err := DB.Preload("Role").Preload("Department.Parent").First(&user, userID).Error; err != nil {
+	// Enable debug mode to see SQL queries
+	result := DB.Debug().Preload("Role").Preload("Department.Parent").First(&user, userID)
+	if result.Error != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "User not found"})
+	}
+
+	// Debug logging
+	log.Printf("=== Profile Debug ===")
+	log.Printf("UserID from token: %v", userID)
+	log.Printf("User loaded: UserID=%d, Email=%s, Name=%s", user.UserID, user.Email, user.Name)
+	log.Printf("User.RoleID: %d", user.RoleID)
+	log.Printf("User.Role: %+v", user.Role)
+	log.Printf("User.DepartmentID: %v", user.DepartmentID)
+	if user.Department != nil {
+		log.Printf("User.Department: %+v", *user.Department)
 	}
 
 	return c.JSON(user)

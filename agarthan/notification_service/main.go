@@ -42,10 +42,12 @@ type Hub struct {
 
 // Client represents a WebSocket client
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	userID uint
+	hub          *Hub
+	conn         *websocket.Conn
+	send         chan []byte
+	userID       uint
+	userRole     string // "citizen", "government", "admin"
+	departmentID uint   // For department-scoped filtering
 }
 
 // Prometheus metrics
@@ -159,6 +161,40 @@ func (h *Hub) SendToUser(userID uint, message []byte) {
 	}
 }
 
+// SendToRole sends notification to all users with specific role
+func (h *Hub) SendToRole(role string, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		if client.userRole == role {
+			select {
+			case client.send <- message:
+				notificationsDelivered.WithLabelValues("success").Inc()
+			default:
+				notificationsDelivered.WithLabelValues("failed").Inc()
+			}
+		}
+	}
+}
+
+// SendToDepartment sends notification to all users in specific department
+func (h *Hub) SendToDepartment(departmentID uint, message []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for client := range h.clients {
+		if client.userRole == "government" && client.departmentID == departmentID {
+			select {
+			case client.send <- message:
+				notificationsDelivered.WithLabelValues("success").Inc()
+			default:
+				notificationsDelivered.WithLabelValues("failed").Inc()
+			}
+		}
+	}
+}
+
 // WritePump sends messages to WebSocket client
 func (c *Client) WritePump() {
 	defer func() {
@@ -233,6 +269,9 @@ func ConnectKafka() error {
 	topics := []string{
 		"submission.events",
 		"media.events",
+		"report.status_change",
+		"report.assignment",
+		"report.escalation",
 	}
 
 	for _, topic := range topics {
@@ -292,6 +331,12 @@ func handleKafkaMessage(ctx context.Context, reader *kafka.Reader, m kafka.Messa
 		notification = handleSubmissionEvent(m.Value)
 	case "media.events":
 		notification = handleMediaEvent(m.Value)
+	case "report.status_change":
+		notification = handleStatusChangeEvent(m.Value)
+	case "report.assignment":
+		notification = handleAssignmentEvent(m.Value)
+	case "report.escalation":
+		notification = handleEscalationEvent(m.Value)
 	default:
 		log.Printf("Unknown topic: %s\n", topic)
 		notificationsProcessed.WithLabelValues(topic, "ignored").Inc()
@@ -307,6 +352,25 @@ func handleKafkaMessage(ctx context.Context, reader *kafka.Reader, m kafka.Messa
 
 			notifJSON, _ := json.Marshal(notification)
 			NotificationHub.SendToUser(notification.UserID, notifJSON)
+
+			// Also notify government users in the relevant department for new reports
+			if topic == "submission.events" && notification.Type == "report_success" && notification.ReportID != nil {
+				var report models.Report
+				if err := DB.Preload("ReportCategory").First(&report, *notification.ReportID).Error; err == nil {
+					if report.ReportCategory.DepartmentID > 0 {
+						deptNotification := models.Notification{
+							Type:      "new_report",
+							Title:     "Laporan Baru Masuk",
+							Message:   fmt.Sprintf("Laporan baru: %s", report.Title),
+							ReportID:  notification.ReportID,
+							CreatedAt: time.Now(),
+						}
+						deptNotifJSON, _ := json.Marshal(deptNotification)
+						NotificationHub.SendToDepartment(report.ReportCategory.DepartmentID, deptNotifJSON)
+						log.Printf("✓ Department notification sent to department %d\n", report.ReportCategory.DepartmentID)
+					}
+				}
+			}
 		}
 	}
 
@@ -407,6 +471,94 @@ func handleMediaEvent(data []byte) *models.Notification {
 	}
 }
 
+// handleStatusChangeEvent handles report status change events
+// Notifies the citizen who reported about progress on their report
+func handleStatusChangeEvent(data []byte) *models.Notification {
+	var event models.ReportStatusChangeEvent
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse status change event: %v\n", err)
+		return nil
+	}
+
+	// Generate citizen-friendly status messages
+	statusMessages := map[string]string{
+		"pending":     "telah diterima dan sedang menunggu peninjauan",
+		"in_progress": "sedang ditangani oleh petugas terkait",
+		"resolved":    "telah diselesaikan",
+		"rejected":    "telah ditolak",
+	}
+
+	message := fmt.Sprintf("Laporan Anda '%s' %s", event.Title, statusMessages[event.NewStatus])
+
+	// Respect anonymous privacy - don't expose reporter identity in any logs or database records
+	reportID := event.ReportID
+	return &models.Notification{
+		UserID:    event.UserID, // Notification sent to original reporter
+		Type:      "status_update",
+		Title:     "Status Laporan Diperbarui",
+		Message:   message,
+		ReportID:  &reportID,
+		CreatedAt: time.Now(),
+	}
+}
+
+// handleAssignmentEvent handles report assignment events
+// Notifies the government official assigned to handle a report
+func handleAssignmentEvent(data []byte) *models.Notification {
+	var event models.ReportAssignmentEvent
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse assignment event: %v\n", err)
+		return nil
+	}
+
+	message := fmt.Sprintf("Anda telah ditugaskan menangani laporan: %s (Tingkat: %s)", event.Title, event.Severity)
+
+	reportID := event.ReportID
+	return &models.Notification{
+		UserID:    event.AssignedTo, // Notification sent to assigned official
+		Type:      "report_assigned",
+		Title:     "Laporan Baru Ditugaskan",
+		Message:   message,
+		ReportID:  &reportID,
+		CreatedAt: time.Now(),
+	}
+}
+
+// handleEscalationEvent handles report escalation events
+// Notifies government officials in the higher department about escalated reports
+func handleEscalationEvent(data []byte) *models.Notification {
+	var event models.ReportEscalationEvent
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse escalation event: %v\n", err)
+		return nil
+	}
+
+	message := fmt.Sprintf("Laporan telah dieskalasi ke departemen Anda: %s (Tingkat: %s). Alasan: %s",
+		event.Title, event.Severity, event.Reason)
+
+	reportID := event.ReportID
+
+	// Note: This notification will be broadcast to the department via SendToDepartment
+	// We return it here for logging purposes but it needs special handling
+	notification := &models.Notification{
+		Type:      "report_escalated",
+		Title:     "Laporan Dieskalasi",
+		Message:   message,
+		ReportID:  &reportID,
+		CreatedAt: time.Now(),
+	}
+
+	// Send to all government officials in the target department
+	notifJSON, _ := json.Marshal(notification)
+	NotificationHub.SendToDepartment(event.ToDepartmentID, notifJSON)
+	log.Printf("✓ Escalation notification sent to department %d\n", event.ToDepartmentID)
+
+	return nil // Return nil since we already handled sending directly
+}
+
 // GetNotificationsHandler returns notifications for a user
 func GetNotificationsHandler(c *fiber.Ctx) error {
 	userID := c.Query("user_id", "1")
@@ -456,11 +608,22 @@ func WebSocketHandler(c *websocket.Conn) {
 	var uid uint
 	fmt.Sscanf(userID, "%d", &uid)
 
+	// Fetch user role and department
+	var user models.User
+	DB.Preload("Role").Preload("Department").First(&user, uid)
+
+	var deptID uint
+	if user.DepartmentID != nil {
+		deptID = *user.DepartmentID
+	}
+
 	client := &Client{
-		hub:    NotificationHub,
-		conn:   c,
-		send:   make(chan []byte, 256),
-		userID: uid,
+		hub:          NotificationHub,
+		conn:         c,
+		send:         make(chan []byte, 256),
+		userID:       uid,
+		userRole:     user.Role.Name,
+		departmentID: deptID,
 	}
 
 	NotificationHub.register <- client

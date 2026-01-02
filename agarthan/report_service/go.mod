@@ -6,6 +6,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/google/uuid v1.6.0
 	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/segmentio/kafka-go v0.4.47
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )

@@ -1,5 +1,9 @@
 FROM golang:1.25-alpine AS build
 
+RUN apk add --no-cache git ca-certificates
+
+ENV GOPROXY=direct
+
 WORKDIR /src
 
 COPY agarthan/report_sync_service/go.work ./agarthan/report_sync_service/

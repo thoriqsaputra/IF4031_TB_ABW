@@ -1,17 +1,22 @@
 FROM golang:1.25-alpine AS build
 
+RUN apk add --no-cache git ca-certificates
+
 WORKDIR /src
 
 COPY agarthan/report_service/go.work ./agarthan/report_service/
 COPY agarthan/report_service/go.mod agarthan/report_service/go.sum ./agarthan/report_service/
 COPY pkg/middleware/go.mod ./pkg/middleware/
 COPY pkg/models/go.mod ./pkg/models/
+COPY pkg/database/go.mod ./pkg/database/
 
+ENV GOPROXY=direct
 RUN cd agarthan/report_service && go mod download
 
 COPY agarthan/report_service ./agarthan/report_service
 COPY pkg/middleware ./pkg/middleware
 COPY pkg/models ./pkg/models
+COPY pkg/database ./pkg/database
 
 RUN cd agarthan/report_service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/report_service .
 

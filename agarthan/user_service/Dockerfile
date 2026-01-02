@@ -1,17 +1,22 @@
 FROM golang:1.25-alpine AS build
 
-WORKDIR /src
+RUN apk add --no-cache git ca-certificates
 
-COPY agarthan/user_service/go.work ./agarthan/user_service/
-COPY agarthan/user_service/go.mod agarthan/user_service/go.sum ./agarthan/user_service/
+WORKDIR /app
+
+COPY agarthan/user_service/go.mod agarthan/user_service/go.sum agarthan/user_service/go.work ./agarthan/user_service/
 COPY pkg/models/go.mod ./pkg/models/
 
-RUN cd agarthan/user_service && go mod download
+WORKDIR /app/agarthan/user_service
+ENV GOPROXY=direct
+RUN go mod download
 
-COPY agarthan/user_service ./agarthan/user_service
-COPY pkg/models ./pkg/models
+WORKDIR /app
+COPY agarthan/user_service/ ./agarthan/user_service/
+COPY pkg/models/ ./pkg/models/
 
-RUN cd agarthan/user_service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/user_service .
+WORKDIR /app/agarthan/user_service
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/user_service .
 
 FROM alpine:3.20
 

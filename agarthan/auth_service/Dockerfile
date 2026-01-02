@@ -5,12 +5,14 @@ WORKDIR /src
 COPY agarthan/auth_service/go.mod agarthan/auth_service/go.sum ./agarthan/auth_service/
 COPY pkg/models/go.mod ./pkg/models/
 COPY pkg/middleware/go.mod ./pkg/middleware/
+COPY pkg/database/go.mod ./pkg/database/
 
 RUN cd agarthan/auth_service && go mod download
 
 COPY agarthan/auth_service ./agarthan/auth_service
 COPY pkg/models ./pkg/models
 COPY pkg/middleware ./pkg/middleware
+COPY pkg/database ./pkg/database
 
 RUN cd agarthan/auth_service && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/auth_service .
 
