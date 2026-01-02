@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"database"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,19 +25,25 @@ func Protected() fiber.Handler {
 
 		tokenString := parts[1]
 
+		if database.IsTokenBlacklisted(tokenString) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "You are logged out"})
+		}
+
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fiber.ErrUnauthorized
 			}
 			return SecretKey, nil
 		})
+
 		if err != nil || !token.Valid {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid token"})
 		}
 
 		claims := token.Claims.(jwt.MapClaims)
-		c.Locals("userID", claims["user_id"])
-		c.Locals("userRole", claims["role"])
+
+		c.Locals("user_id", claims["user_id"])
+		c.Locals("role", claims["role"])
 
 		return c.Next()
 	}

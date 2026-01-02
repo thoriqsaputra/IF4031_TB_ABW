@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database"
 	"log"
 	"middleware"
 	"models"
@@ -13,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	// "github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 var DB *gorm.DB
@@ -67,13 +69,18 @@ func Register(c *fiber.Ctx) error {
 	}
 
 	user := models.User{
-		Name:         input.Name,
-		Email:        input.Email,
-		Password:     string(hashedPassword),
-		RoleID:       input.RoleID,
-		DepartmentID: input.DepartmentID,
-		IsActive:     true,
-		CreatedAt:    time.Now(),
+		Name:     input.Name,
+		Email:    input.Email,
+		Password: string(hashedPassword),
+		RoleID:   input.RoleID,
+		// DepartmentID: input.DepartmentID,
+		IsActive:  true,
+		CreatedAt: time.Now(),
+	}
+
+	// if 0 (citizen) then nil, otherwise they a government
+	if input.DepartmentID > 0 {
+		user.DepartmentID = &input.DepartmentID
 	}
 
 	if err := DB.Create(&user).Error; err != nil {
@@ -114,26 +121,56 @@ func Login(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Login successful", "token": signedToken})
 }
 
+func Logout(c *fiber.Ctx) error {
+	authHeader := c.Get("Authorization")
+	if len(authHeader) < 8 {
+		return c.Status(400).JSON(fiber.Map{"error": "Token tidak valid"})
+	}
+	tokenString := authHeader[7:] // gtfo bearer
+
+	err := database.BlacklistToken(tokenString, 24*time.Hour)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal logout (Redis Error)"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Berhasil logout"})
+}
+
+func GetDepartments(c *fiber.Ctx) error {
+	var depts []models.Department
+	DB.Preload("Parent").Find(&depts)
+	return c.JSON(depts)
+}
+
 // example of protected route
 func Profile(c *fiber.Ctx) error {
-	userID := c.Locals("userID")
-	role := c.Locals("userRole")
+	userID := c.Locals("user_id")
 
-	return c.JSON(fiber.Map{
-		"message": "hi there",
-		"user_id": userID,
-		"role":    role,
-	})
+	var user models.User
+	if err := DB.Preload("Role").Preload("Department.Parent").First(&user, userID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "User not found"})
+	}
+
+	return c.JSON(user)
 }
 
 func main() {
 	ConnectDB()
+	database.ConnectRedis()
 
 	app := fiber.New()
 
+	// app.Use(cors.New(cors.Config{
+	// 	AllowOrigins: "http://localhost:3000",
+	//     AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+	// }))
+
 	app.Post("/api/auth/register", Register)
 	app.Post("/api/auth/login", Login)
+	app.Get("/api/departments", GetDepartments)
+
 	app.Get("/api/auth/profile", middleware.Protected(), Profile)
+	app.Post("/api/auth/logout", middleware.Protected(), Logout)
 
 	log.Fatal(app.Listen(":3001"))
 }
