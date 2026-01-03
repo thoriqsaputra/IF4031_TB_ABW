@@ -62,22 +62,17 @@ const { decodeToken } = useUser()
 const isOpen = ref(false)
 const listRef = ref<HTMLElement | null>(null)
 
-// Filter notifications based on role
 const filteredNotifications = computed(() => {
   if (!userRole.value) return notifications.value
 
   if (userRole.value === 'citizen') {
-    // Citizens see only their own report notifications
     return notifications.value.filter(n => n.user_id === userInfo.value?.user_id)
   }
 
   if (userRole.value === 'government') {
-    // government users see new reports in their department
-    // This requires backend to send department-scoped notifications
     return notifications.value
   }
 
-  // admin sees all
   return notifications.value
 })
 
@@ -90,7 +85,6 @@ const handleNotificationClick = async (notification: Notification) => {
     await markAsRead(notification.notification_id)
   }
 
-  // Navigate to report detail if report_id exists
   if (notification.report_id) {
     await navigateTo(`/details/${notification.report_id}`)
     isOpen.value = false
@@ -130,7 +124,6 @@ const formatTime = (timestamp: string): string => {
 }
 
 const viewAll = () => {
-  // Navigate to dedicated notifications page (future feature)
   isOpen.value = false
 }
 
@@ -138,8 +131,11 @@ const viewAll = () => {
 onMounted(async () => {
   const decoded = decodeToken()
   if (decoded?.user_id) {
+    console.log('NotificationCenter mounted, user_id:', decoded.user_id)
     await fetchNotifications(decoded.user_id)
     connectWebSocket(decoded.user_id)
+  } else {
+    console.log('NotificationCenter mounted, but no user_id found')
   }
 })
 
@@ -147,7 +143,21 @@ onUnmounted(() => {
   disconnectWebSocket()
 })
 
-// Close dropdown when clicking outside
+const { token } = useAuth()
+watch(token, async (newToken) => {
+  if (newToken) {
+    const decoded = decodeToken()
+    if (decoded?.user_id) {
+      console.log('Token changed, fetching notifications for user:', decoded.user_id)
+      await fetchNotifications(decoded.user_id)
+      connectWebSocket(decoded.user_id)
+    }
+  } else {
+    disconnectWebSocket()
+    notifications.value = []
+  }
+})
+
 onClickOutside(listRef, () => {
   isOpen.value = false
 })

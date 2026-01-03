@@ -6,7 +6,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/prometheus/client_golang v1.20.5
-	github.com/segmentio/kafka-go v0.4.47
+	github.com/segmentio/kafka-go v0.4.49
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 	models v0.0.0

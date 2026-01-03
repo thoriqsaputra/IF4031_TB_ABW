@@ -282,7 +282,7 @@ func ConnectKafka() error {
 			MinBytes:       1,
 			MaxBytes:       10e6, // 10MB
 			CommitInterval: time.Second,
-			StartOffset:    kafka.LastOffset,
+			StartOffset:    kafka.FirstOffset, // Start from beginning for new consumer groups
 		})
 
 		KafkaReaders = append(KafkaReaders, reader)
@@ -303,12 +303,15 @@ func ProcessKafkaEvents(ctx context.Context, reader *kafka.Reader) {
 			log.Printf("Stopping consumer for topic: %s\n", topic)
 			return
 		default:
-			m, err := reader.FetchMessage(ctx)
+			m, err := reader.ReadMessage(ctx)
 			if err != nil {
 				if err == context.Canceled {
 					return
 				}
-				log.Printf("Error fetching message from %s: %v\n", topic, err)
+				// EOF or timeout is normal when no messages available
+				if err.Error() != "EOF" && err.Error() != "context deadline exceeded" {
+					log.Printf("Error reading message from %s: %v\n", topic, err)
+				}
 				continue
 			}
 
@@ -394,20 +397,36 @@ func handleSubmissionEvent(data []byte) *models.Notification {
 		return nil
 	}
 
-	if event.Status != "success" && event.Status != "error" {
-		return nil
-	}
-
 	userID := event.UserID
 	if userID == 0 {
 		userID = 1
 	}
 
-	title := "Report Submission"
-	if event.Status == "success" {
-		title = "Report Submitted Successfully"
-	} else {
-		title = "Report Submission Failed"
+	var title, message string
+	var notifType string
+
+	// Handle different status types
+	switch event.Status {
+	case "created":
+		title = "Laporan Berhasil Dibuat"
+		message = "Laporan Anda telah berhasil dibuat dan sedang menunggu verifikasi."
+		notifType = "report_created"
+	case "success":
+		title = "Laporan Berhasil Dikirim"
+		message = "Laporan Anda telah berhasil dikirim dan akan segera diproses."
+		if event.Message != "" {
+			message = event.Message
+		}
+		notifType = "report_success"
+	case "error":
+		title = "Laporan Gagal Dikirim"
+		message = "Maaf, terjadi kesalahan saat mengirim laporan Anda."
+		if event.Message != "" {
+			message = event.Message
+		}
+		notifType = "report_error"
+	default:
+		return nil
 	}
 
 	var reportID *uint
@@ -417,9 +436,9 @@ func handleSubmissionEvent(data []byte) *models.Notification {
 
 	return &models.Notification{
 		UserID:    userID,
-		Type:      "report_" + event.Status,
+		Type:      notifType,
 		Title:     title,
-		Message:   event.Message,
+		Message:   message,
 		ReportID:  reportID,
 		CreatedAt: time.Now(),
 	}
@@ -526,7 +545,6 @@ func handleAssignmentEvent(data []byte) *models.Notification {
 	}
 }
 
-// handleEscalationEvent handles report escalation events
 // Notifies government officials in the higher department about escalated reports
 func handleEscalationEvent(data []byte) *models.Notification {
 	var event models.ReportEscalationEvent
@@ -541,22 +559,37 @@ func handleEscalationEvent(data []byte) *models.Notification {
 
 	reportID := event.ReportID
 
-	// Note: This notification will be broadcast to the department via SendToDepartment
-	// We return it here for logging purposes but it needs special handling
-	notification := &models.Notification{
-		Type:      "report_escalated",
-		Title:     "Laporan Dieskalasi",
-		Message:   message,
-		ReportID:  &reportID,
-		CreatedAt: time.Now(),
+	// Get all government officials in the target department
+	var users []models.User
+	if err := DB.Where("role_id = ? AND department_id = ?", 2, event.ToDepartmentID).Find(&users).Error; err != nil {
+		log.Printf("Failed to get users in department %d: %v\n", event.ToDepartmentID, err)
+		return nil
 	}
 
-	// Send to all government officials in the target department
-	notifJSON, _ := json.Marshal(notification)
-	NotificationHub.SendToDepartment(event.ToDepartmentID, notifJSON)
-	log.Printf("✓ Escalation notification sent to department %d\n", event.ToDepartmentID)
+	// Create notification for each user in the department
+	for _, user := range users {
+		notification := models.Notification{
+			UserID:    user.UserID,
+			Type:      "report_escalated",
+			Title:     "Laporan Dieskalasi",
+			Message:   message,
+			ReportID:  &reportID,
+			CreatedAt: time.Now(),
+		}
 
-	return nil // Return nil since we already handled sending directly
+		if err := DB.Create(&notification).Error; err != nil {
+			log.Printf("Failed to save escalation notification for user %d: %v\n", user.UserID, err)
+			continue
+		}
+
+		// Send via WebSocket if connected
+		notifJSON, _ := json.Marshal(notification)
+		NotificationHub.SendToUser(user.UserID, notifJSON)
+	}
+
+	log.Printf("✓ Escalation notification sent to %d users in department %d\n", len(users), event.ToDepartmentID)
+
+	return nil
 }
 
 // GetNotificationsHandler returns notifications for a user

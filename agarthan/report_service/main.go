@@ -234,7 +234,7 @@ func CreateReport(c *fiber.Ctx) error {
 			return
 		}
 
-		if err := PublishKafkaEvent("report.submissions", fmt.Sprintf("%d", report.ReportID), eventJSON); err != nil {
+		if err := PublishKafkaEvent("submission.events", fmt.Sprintf("%d", report.ReportID), eventJSON); err != nil {
 			log.Printf("Failed to publish submission event: %v\n", err)
 		} else {
 			log.Printf("Published submission event for report %d\n", report.ReportID)
@@ -443,7 +443,8 @@ func GetAnalytics(c *fiber.Ctx) error {
 // Only government officials and admins can update status
 func UpdateReportStatus(c *fiber.Ctx) error {
 	// RBAC: Only government and admin can update status
-	userRole, ok := c.Locals("userRole").(string)
+	userRole, ok := c.Locals("role").(string)
+	log.Printf("DEBUG: UpdateReportStatus - role from locals: '%v', ok: %v", userRole, ok)
 	if !ok || (userRole != "government" && userRole != "admin") {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only government officials and admins can update report status"})
 	}
@@ -516,7 +517,7 @@ func UpdateReportStatus(c *fiber.Ctx) error {
 // Only admins can assign reports
 func AssignReport(c *fiber.Ctx) error {
 	// RBAC: Only admin can assign reports
-	userRole, ok := c.Locals("userRole").(string)
+	userRole, ok := c.Locals("role").(string)
 	if !ok || userRole != "admin" {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only admins can assign reports"})
 	}
@@ -603,7 +604,7 @@ func AssignReport(c *fiber.Ctx) error {
 // Government officials and admins can escalate
 func EscalateReport(c *fiber.Ctx) error {
 	// RBAC: Only government and admin can escalate
-	userRole, ok := c.Locals("userRole").(string)
+	userRole, ok := c.Locals("role").(string)
 	if !ok || (userRole != "government" && userRole != "admin") {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only government officials and admins can escalate reports"})
 	}

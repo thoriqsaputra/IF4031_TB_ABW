@@ -1,19 +1,16 @@
 <template>
   <div class="dashboard-page">
-    <!-- Initial Loading State -->
     <div v-if="isCheckingPermissions" class="loading-state">
       <div class="spinner"></div>
       <p>Checking permissions...</p>
     </div>
 
-    <!-- RBAC Check -->
     <div v-else-if="!hasRole(['government', 'admin'])" class="access-denied">
       <h1>Access Denied</h1>
       <p>You don't have permission to view this page.</p>
       <NuxtLink to="/" class="btn-primary">Go to Home</NuxtLink>
     </div>
 
-    <!-- Dashboard Content -->
     <div v-else class="dashboard-container">
       <header class="dashboard-header">
         <h1>Analytics Dashboard</h1>
@@ -25,21 +22,17 @@
         </p>
       </header>
 
-      <!-- Loading State -->
       <div v-if="isLoading" class="loading-state">
         <div class="spinner"></div>
         <p>Loading analytics...</p>
       </div>
 
-      <!-- Error State -->
       <div v-else-if="error" class="error-state">
         <p>{{ error }}</p>
         <button @click="fetchAnalytics" class="btn-primary">Retry</button>
       </div>
 
-      <!-- Analytics Content -->
       <div v-else-if="analyticsData" class="dashboard-content">
-        <!-- KPI Cards -->
         <section class="kpi-section">
           <div class="kpi-card">
             <div class="kpi-icon total">📊</div>
@@ -74,7 +67,6 @@
           </div>
         </section>
 
-        <!-- Charts Section -->
         <section class="charts-section">
           <div class="chart-card">
             <h2>Reports by Category</h2>
@@ -87,7 +79,6 @@
           </div>
         </section>
 
-        <!-- Activity Feed -->
         <section class="activity-section">
           <h2>Recent Activity</h2>
           <div class="activity-feed">
@@ -122,11 +113,9 @@ const severityChartRef = ref<HTMLCanvasElement | null>(null)
 let categoryChart: Chart | null = null
 let severityChart: Chart | null = null
 
-// Initialize charts
 const initCharts = () => {
   if (!analyticsData.value) return
 
-  // Category Bar Chart
   if (categoryChartRef.value) {
     categoryChart = new Chart(categoryChartRef.value, {
       type: 'bar',
@@ -160,7 +149,6 @@ const initCharts = () => {
     })
   }
 
-  // Severity Pie Chart
   if (severityChartRef.value) {
     const severityColors = {
       low: 'rgba(138, 209, 193, 0.8)',
@@ -212,7 +200,6 @@ onMounted(async () => {
 
   isCheckingPermissions.value = true
 
-  // Load token from localStorage first
   loadToken()
 
   console.log('Token:', token.value ? 'Present' : 'Missing')
@@ -238,13 +225,11 @@ onMounted(async () => {
   }
 })
 
-// Cleanup charts
 onUnmounted(() => {
   if (categoryChart) categoryChart.destroy()
   if (severityChart) severityChart.destroy()
 })
 
-// Watch for data changes and reinit charts
 watch(() => analyticsData.value, () => {
   if (categoryChart) categoryChart.destroy()
   if (severityChart) severityChart.destroy()
