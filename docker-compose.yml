@@ -178,10 +178,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      target: dev
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      target: prod
     ports:
       - "3005:3005"
     networks:

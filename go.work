@@ -3,7 +3,15 @@ go 1.25.5
 use (
 	./agarthan/auth_service
 	./agarthan/report_service
+	./agarthan/workforce_rotation
+	./agarthan/report_worker
+	./agarthan/user_service
+	./agarthan/notification_service
+	./agarthan/media_service
+	./agarthan/search_service
+	./agarthan/report_sync_service
 	./pkg/models
 	./pkg/middleware
 	./pkg/database
+	./pkg/metrics
 )
