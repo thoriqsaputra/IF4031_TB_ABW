@@ -2,7 +2,7 @@
 import { Squares2X2Icon, BellIcon, ArrowRightOnRectangleIcon } from '@heroicons/vue/24/outline'
 
 const { token, loadToken, clearToken } = useAuth();
-const { userRole, fetchUserProfile } = useUser();
+const { userRole, fetchUserProfile, isLoadingProfile } = useUser();
 const router = useRouter();
 const showLogoutDialog = ref(false);
 const isLoggingOut = ref(false);
@@ -49,16 +49,17 @@ const confirmLogout = async () => {
   }
 };
 
-onMounted(async () => {
-  loadToken();
-  if (token.value) {
-    await fetchUserProfile();
-  }
-});
 </script>
 
 <template>
   <div class="app" :class="themeClass">
+    <!-- Loading Overlay During Profile Fetch -->
+    <Transition name="fade">
+      <div v-if="token && isLoadingProfile" class="loading-overlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </Transition>
+
     <!-- Modern Navigation Bar -->
     <header class="topbar" :class="themeClass">
       <div class="container">
@@ -209,6 +210,39 @@ onMounted(async () => {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
 

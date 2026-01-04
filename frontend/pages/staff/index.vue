@@ -153,17 +153,6 @@ watch(token, (value) => {
         <p v-if="error" class="form-message error">{{ error }}</p>
         <p v-if="authStatus" class="form-message success">{{ authStatus }}</p>
       </form>
-      <div v-else class="panel staff-actions">
-        <h3>Staff access confirmed</h3>
-        <p class="helper">Refresh your queue or sign out.</p>
-        <div class="button-row">
-          <button type="button" :disabled="isLoading" @click="handleRefresh">
-            {{ isLoading ? "Refreshing..." : "Refresh assignments" }}
-          </button>
-        </div>
-        <p v-if="error" class="form-message error">{{ error }}</p>
-        <p v-if="authStatus" class="form-message success">{{ authStatus }}</p>
-      </div>
     </div>
 
     <div class="section-title" style="margin-top: 32px;">

@@ -85,7 +85,7 @@ services:
     environment:
       DB_DSN: host=postgres user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable
       KAFKA_BROKERS: kafka:19092
-      KAFKA_REPORT_PUBLISHED_TOPIC: report.published
+      KAFKA_REPORT_PUBLISHED_TOPIC: submission.events
     depends_on:
       postgres:
         condition: service_started

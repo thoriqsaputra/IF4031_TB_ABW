@@ -18,11 +18,23 @@ type ReportMedia struct {
 }
 
 type ReportAssignment struct {
-	AssignmentID uint      `gorm:"primaryKey;column:report_assignment_id" json:"assignment_id"`
-	Status       string    `json:"status"`
-	AssignedAt   time.Time `json:"assigned_at"`
-	AssignedTo   uint      `json:"assigned_to"`
-	ReportID     uint      `json:"report_id"`
+	AssignmentID uint       `gorm:"primaryKey;column:report_assignment_id" json:"assignment_id"`
+	Status       string     `json:"status"`
+	AssignedAt   time.Time  `json:"assigned_at"`
+	AssignedTo   uint       `json:"assigned_to"`
+	ReportID     uint       `json:"report_id"`
+	Response     string     `gorm:"type:text" json:"response"`
+	RespondedAt  *time.Time `json:"responded_at"`
+}
+
+type StatusChange struct {
+	StatusChangeID uint      `gorm:"primaryKey;column:status_change_id;autoIncrement" json:"status_change_id"`
+	ReportID       uint      `json:"report_id"`
+	OldStatus      string    `json:"old_status"`
+	NewStatus      string    `json:"new_status"`
+	ChangedBy      uint      `json:"changed_by"`
+	ChangedAt      time.Time `json:"changed_at"`
+	Notes          string    `gorm:"type:text" json:"notes"`
 }
 
 type ReportResponse struct {
@@ -35,17 +47,18 @@ type ReportResponse struct {
 }
 
 type Report struct {
-	ReportID    uint      `gorm:"primaryKey;column:report_id" json:"report_id"`
-	Title       string    `json:"title"`
-	Description string    `gorm:"type:text" json:"description"`
-	IsPublic    bool      `json:"is_public"`
-	IsAnonymous bool      `json:"is_anon"`
-	Location    string    `json:"location"`
-	Severity    string    `json:"severity"`
-	Status      string    `gorm:"default:'pending'" json:"status"` // pending, in_progress, resolved, rejected
-	AssignedTo  *uint     `json:"assigned_to"`                     // government official assigned to handle
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ReportID            uint      `gorm:"primaryKey;column:report_id" json:"report_id"`
+	Title               string    `json:"title"`
+	Description         string    `gorm:"type:text" json:"description"`
+	IsPublic            bool      `json:"is_public"`
+	IsAnonymous         bool      `json:"is_anon"`
+	Location            string    `json:"location"`
+	Severity            string    `json:"severity"`
+	Status              string    `gorm:"default:'pending'" json:"status"` // pending, in_progress, resolved, rejected
+	AssignedTo          *uint     `json:"assigned_to"`                     // government official assigned to handle
+	CurrentDepartmentID *uint     `gorm:"column:current_department_id" json:"current_department_id"` // current department handling the report (used for escalation)
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 
 	// foreign keys
 	ReportCategoryID uint `gorm:"column:report_categories_id" json:"report_categories_id"`
@@ -120,4 +133,14 @@ type ReportEscalationEvent struct {
 	Title            string `json:"title"`
 	Severity         string `json:"severity"`
 	Timestamp        string `json:"timestamp"`
+}
+
+type ReportResponseEvent struct {
+	ReportID     uint   `json:"report_id"`
+	ResponseID   uint   `json:"response_id"`
+	RespondedBy  uint   `json:"responded_by"`
+	ReporterID   uint   `json:"reporter_id"` // The original report creator
+	Title        string `json:"title"`
+	IsAnonymous  bool   `json:"is_anonymous"`
+	Timestamp    string `json:"timestamp"`
 }

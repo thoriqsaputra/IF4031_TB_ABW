@@ -11,6 +11,7 @@ import (
 	"log"
 	"mime/multipart"
 	"models"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -542,17 +543,24 @@ func ServeMediaFile(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Printf("Serving media file: %s\n", objectKey)
+	// Decode URL-encoded filename (e.g., %20 -> space)
+	decodedKey, err := url.QueryUnescape(objectKey)
+	if err != nil {
+		log.Printf("Failed to decode object key %s: %v\n", objectKey, err)
+		decodedKey = objectKey // Use original if decoding fails
+	}
 
-	// Get object from MinIO
+	log.Printf("Serving media file: %s (decoded: %s)\n", objectKey, decodedKey)
+
+	// Get object from MinIO using decoded key
 	object, err := MinioClient.GetObject(
 		c.Context(),
 		BucketName,
-		objectKey,
+		decodedKey,
 		minio.GetObjectOptions{},
 	)
 	if err != nil {
-		log.Printf("Failed to get object %s: %v\n", objectKey, err)
+		log.Printf("Failed to get object %s: %v\n", decodedKey, err)
 		return c.Status(404).JSON(fiber.Map{
 			"error": "Media not found",
 		})
@@ -562,7 +570,7 @@ func ServeMediaFile(c *fiber.Ctx) error {
 	// Get object info for content type
 	objectInfo, err := object.Stat()
 	if err != nil {
-		log.Printf("Failed to get object info %s: %v\n", objectKey, err)
+		log.Printf("Failed to get object info %s: %v\n", decodedKey, err)
 		return c.Status(500).JSON(fiber.Map{
 			"error": "Failed to retrieve media",
 		})

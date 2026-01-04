@@ -1,5 +1,12 @@
 export const useAuth = () => {
-  const token = useState<string | null>("authToken", () => null);
+  const token = useState<string | null>("authToken", () => {
+    // Eagerly load from localStorage on client
+    if (process.client) {
+      const stored = localStorage.getItem("authToken");
+      return stored && stored.trim() !== "" ? stored : null;
+    }
+    return null;
+  });
 
   const loadToken = () => {
     if (!process.client || token.value) {

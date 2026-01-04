@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -108,6 +109,7 @@ func ConnectDB() {
 		&models.ReportResponse{},
 		&models.Upvote{},
 		&models.Escalation{},
+		&models.StatusChange{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
@@ -397,13 +399,17 @@ func GetReports(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "government user must have a department assigned"})
 		}
 		
-		// Get reports that are public AND belong to their department
+		log.Printf("[GetReportsForCitizen] Government user %d, department %d", userID, *user.DepartmentID)
+		
+		// Get reports that are public AND belong to their department (using current_department_id or falling back to category's department)
 		if err := DB.Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("(reports.is_public = ? OR reports.user_id = ?) AND report_categories.department_id = ?", 
+			Where("(reports.is_public = ? OR reports.user_id = ?) AND COALESCE(reports.current_department_id, report_categories.department_id) = ?", 
 				true, userID, *user.DepartmentID).
 			Find(&reports).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
+		
+		log.Printf("[GetReportsForCitizen] Found %d reports for department %d", len(reports), *user.DepartmentID)
 	} else {
 		// Admin and regular users can see all public reports or their own
 		if err := DB.Where("is_public = ? OR user_id = ?", true, userID).Find(&reports).Error; err != nil {
@@ -525,6 +531,8 @@ func GetReportDetails(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
 	}
 
+	userRole, _ := c.Locals("role").(string)
+
 	reportIDRaw, err := strconv.ParseUint(c.Params("id"), 10, 64)
 	if err != nil || reportIDRaw == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid report id"})
@@ -540,20 +548,121 @@ func GetReportDetails(c *fiber.Ctx) error {
 
 	var assignment models.ReportAssignment
 	assignedToUser := false
-	if err := DB.Where("report_id = ? AND assigned_to = ?", reportID, userID).First(&assignment).Error; err != nil {
+	hasAssignment := false
+	if err := DB.Where("report_id = ?", reportID).Order("assigned_at DESC").First(&assignment).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 	} else {
-		assignedToUser = true
+		hasAssignment = true
+		if assignment.AssignedTo == userID {
+			assignedToUser = true
+		}
 	}
 
 	// Allow access to public reports, the owner, or the assigned user.
-	if !report.IsPublic && report.UserID != userID && !assignedToUser {
+	isOwner := report.UserID == userID
+	isStaff := userRole == "government" || userRole == "admin"
+	if !report.IsPublic && !isOwner && !assignedToUser && !isStaff {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
 	}
 
-	return c.JSON(report)
+	// Build response with additional info for owner and staff
+	response := fiber.Map{
+		"report_id":             report.ReportID,
+		"user_id":               report.UserID,
+		"title":                 report.Title,
+		"description":           report.Description,
+		"location":              report.Location,
+		"status":                report.Status,
+		"severity":              report.Severity,
+		"is_public":             report.IsPublic,
+		"is_anon":               report.IsAnonymous,
+		"report_categories_id":  report.ReportCategoryID,
+		"created_at":            report.CreatedAt,
+		"updated_at":            report.UpdatedAt,
+	}
+
+	// Fetch and include media for all users
+	var reportMedia []models.ReportMedia
+	if err := DB.Where("report_id = ?", reportID).Find(&reportMedia).Error; err == nil {
+		mediaList := make([]fiber.Map, 0)
+		for _, m := range reportMedia {
+			mediaList = append(mediaList, fiber.Map{
+				"media_id":    m.ReportMediaID,
+				"media_type":  m.MediaType,
+				"url":         fmt.Sprintf("/media/%s", url.PathEscape(m.ObjectKey)),
+				"filename":    m.ObjectKey,
+				"created_at":  m.CreatedAt,
+			})
+		}
+		response["media"] = mediaList
+	}
+
+	// Add assignment info for owner and staff
+	if isOwner || isStaff {
+		if hasAssignment {
+			// Fetch assigned user info
+			var assignedUser models.User
+			if err := DB.Select("user_id, email, role_id").First(&assignedUser, assignment.AssignedTo).Error; err == nil {
+				response["assignment"] = fiber.Map{
+					"assigned_to":       assignment.AssignedTo,
+					"assigned_to_email": assignedUser.Email,
+					"assigned_at":       assignment.AssignedAt,
+					"status":            assignment.Status,
+					"response":          assignment.Response,
+					"responded_at":      assignment.RespondedAt,
+				}
+			}
+		}
+
+		// Fetch status history
+		var statusHistory []models.StatusChange
+		if err := DB.Where("report_id = ?", reportID).Order("changed_at DESC").Find(&statusHistory).Error; err == nil && len(statusHistory) > 0 {
+			statusChanges := make([]fiber.Map, 0)
+			for _, sc := range statusHistory {
+				statusChanges = append(statusChanges, fiber.Map{
+					"old_status": sc.OldStatus,
+					"new_status": sc.NewStatus,
+					"changed_by": sc.ChangedBy,
+					"changed_at": sc.ChangedAt,
+					"notes":      sc.Notes,
+				})
+			}
+			response["status_history"] = statusChanges
+		}
+
+		// Fetch report responses
+		var reportResponses []models.ReportResponse
+		if err := DB.Where("report_id = ?", reportID).Order("created_at DESC").Find(&reportResponses).Error; err == nil && len(reportResponses) > 0 {
+			responsesList := make([]fiber.Map, 0)
+			for _, rr := range reportResponses {
+				responsesList = append(responsesList, fiber.Map{
+					"message":    rr.Message,
+					"created_at": rr.CreatedAt,
+					"created_by": rr.CreatedBy,
+				})
+			}
+			response["responses"] = responsesList
+		}
+
+		// Fetch escalations
+		var escalations []models.Escalation
+		if err := DB.Where("report_id = ?", reportID).Order("escalated_at DESC").Find(&escalations).Error; err == nil {
+			escalationList := make([]fiber.Map, 0)
+			for _, esc := range escalations {
+				escalationList = append(escalationList, fiber.Map{
+					"from_department_id": esc.FromDepartmentID,
+					"to_department_id":   esc.ToDepartmentID,
+					"reason":             esc.Reason,
+					"escalated_at":       esc.EscalatedAt,
+				})
+			}
+			response["escalations"] = escalationList
+		}
+	}
+
+	return c.JSON(response)
 }
 
 // CreateUpvote allows citizens to upvote public reports
@@ -634,9 +743,23 @@ func DeleteUpvote(c *fiber.Ctx) error {
 	DB.Model(&models.Upvote{}).Where("report_id = ?", reportID).Count(&count)
 
 	return c.JSON(fiber.Map{
-		"message":       "upvote removed successfully",
+		"message":      "upvote removed successfully",
 		"upvote_count": count,
 	})
+}
+
+// GetCategories returns all report categories
+func GetCategories(c *fiber.Ctx) error {
+	var categories []models.ReportCategory
+	
+	if err := DB.Find(&categories).Error; err != nil {
+		log.Printf("Failed to fetch categories: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch categories",
+		})
+	}
+
+	return c.JSON(categories)
 }
 
 // GetAnalytics returns analytics data with RBAC filtering
@@ -685,7 +808,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 		Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id")
 
 	if departmentID > 0 {
-		query = query.Where("report_categories.department_id = ?", departmentID)
+		query = query.Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	query.Group("report_categories.name").Scan(&byCategory)
 
@@ -701,7 +824,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		severityQuery = severityQuery.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	severityQuery.Group("severity").Scan(&bySeverity)
 
@@ -711,7 +834,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		countQuery = countQuery.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	countQuery.Count(&total)
 
@@ -730,7 +853,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		activityQuery = activityQuery.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	activityQuery.Scan(&recentActivity)
 
@@ -740,7 +863,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		kpiQuery = kpiQuery.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	kpiQuery.Where("status = ?", "resolved").Count(&completed)
 
@@ -748,7 +871,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		kpiQuery2 = kpiQuery2.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	kpiQuery2.Where("status = ?", "pending").Count(&pending)
 
@@ -756,7 +879,7 @@ func GetAnalytics(c *fiber.Ctx) error {
 	if departmentID > 0 {
 		kpiQuery3 = kpiQuery3.
 			Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
-			Where("report_categories.department_id = ?", departmentID)
+			Where("COALESCE(reports.current_department_id, report_categories.department_id) = ?", departmentID)
 	}
 	kpiQuery3.Where("status = ?", "in_progress").Count(&inProgress)
 
@@ -1011,11 +1134,20 @@ func EscalateReport(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Update report category to new department
-	report.ReportCategory.DepartmentID = input.ToDepartmentID
-	report.UpdatedAt = time.Now()
-	if err := DB.Save(&report.ReportCategory).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// Update the report's current_department_id to reflect the escalation
+	// Do NOT modify the category's department_id as it affects all reports with that category
+	if err := DB.Model(&report).Updates(map[string]interface{}{
+		"current_department_id": input.ToDepartmentID,
+		"assigned_to":           nil,
+		"updated_at":            time.Now(),
+	}).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update report department"})
+	}
+
+	// Delete any existing assignments when escalating (report needs to be reassigned in new department)
+	if err := DB.Where("report_id = ?", report.ReportID).Delete(&models.ReportAssignment{}).Error; err != nil {
+		log.Printf("Failed to delete assignment during escalation: %v", err)
+		// Don't fail the escalation if assignment deletion fails, just log it
 	}
 
 	// Publish Kafka event for notification to higher department
@@ -1062,6 +1194,9 @@ func main() {
 	app.Get("/api/reports/assigned", middleware.Protected(), GetAssignedReports)
 	app.Get("/api/reports/:id", middleware.Protected(), GetReportDetails)
 	app.Get("/api/reports/:id/status", middleware.Protected(), GetReportStatus)
+
+	// Categories
+	app.Get("/api/categories", GetCategories)
 
 	// Upvotes (Citizens only)
 	app.Post("/api/reports/:id/upvote", middleware.Protected(), CreateUpvote)

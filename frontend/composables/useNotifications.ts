@@ -16,7 +16,7 @@ export const useNotifications = () => {
   const fetchNotifications = async (userId: number) => {
     try {
       const response = await $fetch<NotificationStats>(
-        `/notifications?user_id=${userId}&limit=50`
+        `/api/notifications?user_id=${userId}&limit=50`
       )
       notifications.value = response.notifications
     } catch (error) {
@@ -73,7 +73,7 @@ export const useNotifications = () => {
   const markAsRead = async (notificationId: number) => {
     try {
       await $fetch(
-        `/notifications/${notificationId}/read`,
+        `/api/notifications/${notificationId}/read`,
         {
           method: 'PUT',
           headers: token.value ? {

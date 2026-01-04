@@ -208,7 +208,7 @@ img {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 1000;
+  z-index: 100;
   background: var(--background);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
@@ -707,7 +707,7 @@ img {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: 1000;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   display: flex;

@@ -342,6 +342,37 @@ func consumeReportResponses(msgs <-chan amqp.Delivery, kafkaWriter *kafka.Writer
 			Message:   "stored",
 		})
 		log.Printf("Report response stored (request_id=%s report_id=%d created_by=%d)", request.RequestID, response.ReportID, response.CreatedBy)
+
+		// Fetch the report to get the reporter ID and title for notification
+		var report models.Report
+		if err := DB.Select("report_id", "user_id", "title", "is_anonymous").Where("report_id = ?", response.ReportID).First(&report).Error; err == nil {
+			// Publish response event to Kafka for notification
+			responseEvent := models.ReportResponseEvent{
+				ReportID:    response.ReportID,
+				ResponseID:  response.ReportResponseID,
+				RespondedBy: response.CreatedBy,
+				ReporterID:  report.UserID,
+				Title:       report.Title,
+				IsAnonymous: report.IsAnonymous,
+				Timestamp:   time.Now().Format(time.RFC3339),
+			}
+
+			eventJSON, _ := json.Marshal(responseEvent)
+			// Create a dedicated writer for report.response topic
+			responseWriter := newKafkaWriter("report.response")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := responseWriter.WriteMessages(ctx, kafka.Message{
+				Key:   []byte(string(response.ReportID)),
+				Value: eventJSON,
+			}); err != nil {
+				log.Printf("Failed to publish response event: %v", err)
+			} else {
+				log.Printf("Published response event for report %d", response.ReportID)
+			}
+			cancel()
+			responseWriter.Close()
+		}
+
 		_ = msg.Ack(false)
 	}
 }
@@ -397,7 +428,9 @@ func main() {
 		log.Fatal("Failed to register report_response consumer:", err)
 	}
 
+	log.Println("Starting response consumer goroutine...")
 	go consumeReportResponses(responseMsgs, kafkaWriter)
+	log.Println("Response consumer goroutine started")
 
 	consumeReportRequests(msgs, kafkaWriter, reportPublishedWriter)
 }

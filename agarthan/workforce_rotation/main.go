@@ -125,7 +125,7 @@ func newKafkaReader() *kafka.Reader {
 		Brokers:     kafkaBrokers(),
 		Topic:       kafkaTopic(),
 		Partition:   0,
-		StartOffset: kafka.LastOffset,
+		StartOffset: kafka.FirstOffset,
 		MinBytes:    1,
 		MaxBytes:    10e6,
 	})

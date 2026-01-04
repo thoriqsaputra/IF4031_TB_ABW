@@ -84,6 +84,22 @@ const submitReport = async () => {
         console.log('Starting media upload for report:', reportId);
         await uploadSelectedMedia(reportId);
       }
+
+      // Reset form after successful submission
+      form.title = "";
+      form.description = "";
+      form.location = "";
+      form.severity = "medium";
+      form.is_public = true;
+      form.is_anon = false;
+      if (categories.value.length > 0) {
+        form.report_categories_id = categories.value[0].report_categories_id;
+      }
+
+      // Navigate to the created report after 2 seconds
+      setTimeout(() => {
+        navigateTo(`/details/${reportId}`);
+      }, 2000);
     } else {
       status.value = "Report submitted and queued for processing.";
       console.warn('No report_id in response, cannot upload media');

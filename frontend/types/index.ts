@@ -41,8 +41,10 @@ export interface Notification {
 
 export interface NotificationStats {
   notifications: Notification[]
-  total_notifications: number
-  unread_notifications: number
+  stats: {
+    total_notifications: number
+    unread_notifications: number
+  }
 }
 
 export interface AnalyticsData {

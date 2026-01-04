@@ -63,17 +63,9 @@ const isOpen = ref(false)
 const listRef = ref<HTMLElement | null>(null)
 
 const filteredNotifications = computed(() => {
-  if (!userRole.value) return notifications.value
-
-  if (userRole.value === 'citizen') {
-    return notifications.value.filter(n => n.user_id === userInfo.value?.user_id)
-  }
-
-  if (userRole.value === 'government') {
-    return notifications.value
-  }
-
-  return notifications.value
+  // API already filters by user_id in the query params,
+  // so we just return all notifications that were fetched
+  return notifications.value || []
 })
 
 const toggleDropdown = () => {

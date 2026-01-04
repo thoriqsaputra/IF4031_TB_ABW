@@ -3,6 +3,7 @@ import type { DecodedToken, User } from '~/types'
 export const useUser = () => {
   const { token } = useAuth()
   const userInfo = useState<User | null>('userInfo', () => null)
+  const isLoadingProfile = useState<boolean>('isLoadingProfile', () => false)
   const userRole = computed(() => userInfo.value?.role.name ?? null)
   const userDepartment = computed(() => userInfo.value?.department_id ?? null)
 
@@ -28,6 +29,7 @@ export const useUser = () => {
       return
     }
 
+    isLoadingProfile.value = true
     try {
       console.log('[useUser] Fetching profile from /api/auth/profile')
       const response = await $fetch<User>('/api/auth/profile', {
@@ -41,6 +43,9 @@ export const useUser = () => {
       console.log('[useUser] userInfo set to:', userInfo.value)
     } catch (error) {
       console.error('[useUser] Failed to fetch user profile:', error)
+      throw error
+    } finally {
+      isLoadingProfile.value = false
     }
   }
 
@@ -54,6 +59,7 @@ export const useUser = () => {
     userInfo,
     userRole,
     userDepartment,
+    isLoadingProfile,
     decodeToken,
     fetchUserProfile,
     hasRole

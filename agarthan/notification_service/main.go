@@ -272,6 +272,7 @@ func ConnectKafka() error {
 		"report.status_change",
 		"report.assignment",
 		"report.escalation",
+		"report.response",
 	}
 
 	for _, topic := range topics {
@@ -340,6 +341,8 @@ func handleKafkaMessage(ctx context.Context, reader *kafka.Reader, m kafka.Messa
 		notification = handleAssignmentEvent(m.Value)
 	case "report.escalation":
 		notification = handleEscalationEvent(m.Value)
+	case "report.response":
+		notification = handleResponseEvent(m.Value)
 	default:
 		log.Printf("Unknown topic: %s\n", topic)
 		notificationsProcessed.WithLabelValues(topic, "ignored").Inc()
@@ -357,20 +360,35 @@ func handleKafkaMessage(ctx context.Context, reader *kafka.Reader, m kafka.Messa
 			NotificationHub.SendToUser(notification.UserID, notifJSON)
 
 			// Also notify government users in the relevant department for new reports
-			if topic == "submission.events" && notification.Type == "report_success" && notification.ReportID != nil {
+			if topic == "submission.events" && (notification.Type == "report_success" || notification.Type == "report_created") && notification.ReportID != nil {
 				var report models.Report
 				if err := DB.Preload("ReportCategory").First(&report, *notification.ReportID).Error; err == nil {
 					if report.ReportCategory.DepartmentID > 0 {
-						deptNotification := models.Notification{
-							Type:      "new_report",
-							Title:     "Laporan Baru Masuk",
-							Message:   fmt.Sprintf("Laporan baru: %s", report.Title),
-							ReportID:  notification.ReportID,
-							CreatedAt: time.Now(),
+						// Get all government users in the target department
+						var users []models.User
+						if err := DB.Where("role_id = ? AND department_id = ?", 2, report.ReportCategory.DepartmentID).Find(&users).Error; err == nil {
+							// Create notification for each user in the department
+							for _, user := range users {
+								deptNotification := models.Notification{
+									UserID:    user.UserID,
+									Type:      "new_report",
+									Title:     "Laporan Baru Masuk",
+									Message:   fmt.Sprintf("Laporan baru dari kategori %s: %s (Tingkat: %s)", report.ReportCategory.Name, report.Title, report.Severity),
+									ReportID:  notification.ReportID,
+									CreatedAt: time.Now(),
+								}
+
+								if err := DB.Create(&deptNotification).Error; err != nil {
+									log.Printf("Failed to save department notification for user %d: %v\n", user.UserID, err)
+									continue
+								}
+
+								// Send via WebSocket if connected
+								deptNotifJSON, _ := json.Marshal(deptNotification)
+								NotificationHub.SendToUser(user.UserID, deptNotifJSON)
+							}
+							log.Printf("✓ Department notification sent to %d users in department %d\n", len(users), report.ReportCategory.DepartmentID)
 						}
-						deptNotifJSON, _ := json.Marshal(deptNotification)
-						NotificationHub.SendToDepartment(report.ReportCategory.DepartmentID, deptNotifJSON)
-						log.Printf("✓ Department notification sent to department %d\n", report.ReportCategory.DepartmentID)
 					}
 				}
 			}
@@ -590,6 +608,34 @@ func handleEscalationEvent(data []byte) *models.Notification {
 	log.Printf("✓ Escalation notification sent to %d users in department %d\n", len(users), event.ToDepartmentID)
 
 	return nil
+}
+
+// Notifies report owner when a staff member responds to their report
+func handleResponseEvent(data []byte) *models.Notification {
+	var event models.ReportResponseEvent
+
+	if err := json.Unmarshal(data, &event); err != nil {
+		log.Printf("Failed to parse response event: %v\n", err)
+		return nil
+	}
+
+	// Don't notify if the report is anonymous
+	if event.IsAnonymous {
+		log.Printf("Skipping notification for anonymous report %d\n", event.ReportID)
+		return nil
+	}
+
+	message := fmt.Sprintf("Laporan Anda \"%s\" telah mendapat tanggapan resmi dari petugas.", event.Title)
+
+	reportID := event.ReportID
+	return &models.Notification{
+		UserID:    event.ReporterID, // Notification sent to original reporter
+		Type:      "report_responded",
+		Title:     "Tanggapan Baru pada Laporan",
+		Message:   message,
+		ReportID:  &reportID,
+		CreatedAt: time.Now(),
+	}
 }
 
 // GetNotificationsHandler returns notifications for a user
