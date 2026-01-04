@@ -4,7 +4,7 @@
       <h3>Upload Media</h3>
       <label class="anonymous-toggle">
         <input type="checkbox" v-model="isAnonymous" />
-        <span>Upload sebagai anonim</span>
+        <span>Upload anonymously</span>
       </label>
     </div>
 
@@ -16,12 +16,8 @@
       @dragleave.prevent="isDragover = false"
     >
       <div v-if="files.length === 0" class="dropzone-placeholder">
-        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="17 8 12 3 7 8" />
-          <line x1="12" y1="3" x2="12" y2="15" />
-        </svg>
-        <p>Drag & drop files atau <label for="file-input" class="browse-link">browse</label></p>
+        <CloudArrowUpIcon class="upload-icon" />
+        <p>Drag & drop files or <label for="file-input" class="browse-link">browse</label></p>
         <span class="file-types">JPG, PNG, GIF, WebP, MP4, MOV (Max 50MB)</span>
       </div>
 
@@ -33,7 +29,7 @@
         >
           <img v-if="file.preview" :src="file.preview" :alt="file.name" />
           <div v-else class="file-icon">
-            <span>{{ file.type.split('/')[0] }}</span>
+            <DocumentIcon class="w-6 h-6 text-glow" />
           </div>
           <div class="file-info">
             <span class="file-name">{{ file.name }}</span>
@@ -45,7 +41,7 @@
             @click="removeFile(index)"
             :disabled="isUploading"
           >
-            ×
+            <XMarkIcon class="w-4 h-4" />
           </button>
 
           <div v-if="file.uploadProgress !== undefined" class="progress-bar">
@@ -91,6 +87,8 @@
 </template>
 
 <script setup lang="ts">
+import { CloudArrowUpIcon, XMarkIcon, DocumentIcon } from '@heroicons/vue/24/outline';
+
 const props = defineProps<{
   reportId: number | null
   maxFiles?: number

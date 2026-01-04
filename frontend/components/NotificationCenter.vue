@@ -55,9 +55,9 @@
 import type { Notification } from '~/types'
 import { onClickOutside } from '@vueuse/core'
 
+const { token } = useAuth()
 const { notifications, unreadCount, fetchNotifications, connectWebSocket, disconnectWebSocket, markAsRead } = useNotifications()
-const { userInfo, userRole } = useUser()
-const { decodeToken } = useUser()
+const { userInfo, userRole, decodeToken } = useUser()
 
 const isOpen = ref(false)
 const listRef = ref<HTMLElement | null>(null)
@@ -129,11 +129,19 @@ const viewAll = () => {
 
 // Initialize
 onMounted(async () => {
+  if (!token.value) {
+    console.log('NotificationCenter: No token, skipping initialization')
+    return
+  }
+  
   const decoded = decodeToken()
   if (decoded?.user_id) {
     console.log('NotificationCenter mounted, user_id:', decoded.user_id)
     await fetchNotifications(decoded.user_id)
-    connectWebSocket(decoded.user_id)
+    // Delay WebSocket connection to ensure better stability
+    setTimeout(() => {
+      connectWebSocket(decoded.user_id)
+    }, 500)
   } else {
     console.log('NotificationCenter mounted, but no user_id found')
   }
@@ -143,14 +151,15 @@ onUnmounted(() => {
   disconnectWebSocket()
 })
 
-const { token } = useAuth()
 watch(token, async (newToken) => {
   if (newToken) {
     const decoded = decodeToken()
     if (decoded?.user_id) {
       console.log('Token changed, fetching notifications for user:', decoded.user_id)
       await fetchNotifications(decoded.user_id)
-      connectWebSocket(decoded.user_id)
+      setTimeout(() => {
+        connectWebSocket(decoded.user_id)
+      }, 500)
     }
   } else {
     disconnectWebSocket()
@@ -192,7 +201,7 @@ onClickOutside(listRef, () => {
   position: absolute;
   top: 0;
   right: 0;
-  background: var(--sunset);
+  background: var(--primary-600);
   color: white;
   border-radius: 10px;
   padding: 0.125rem 0.375rem;
@@ -200,6 +209,8 @@ onClickOutside(listRef, () => {
   font-weight: 700;
   min-width: 18px;
   text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
 }
 
 .notification-dropdown {

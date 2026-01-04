@@ -11,6 +11,7 @@ const form = reactive({
   is_anon: false,
 });
 
+const categories = ref([]);
 const error = ref("");
 const status = ref("");
 const isSubmitting = ref(false);
@@ -18,6 +19,20 @@ const isWaiting = ref(false);
 const createdReportId = ref(null);
 const selectedFiles = ref([]);
 const isUploadingMedia = ref(false);
+
+// Fetch categories from API
+const fetchCategories = async () => {
+  try {
+    const response = await $fetch("/api/categories");
+    categories.value = response;
+    if (categories.value.length > 0) {
+      form.report_categories_id = categories.value[0].report_categories_id;
+    }
+  } catch (err) {
+    console.error("Failed to fetch categories:", err);
+    error.value = "Failed to load categories";
+  }
+};
 
 const submitReport = async () => {
   error.value = "";
@@ -146,6 +161,7 @@ const formatFileSize = (bytes) => {
 
 onMounted(() => {
   loadToken();
+  fetchCategories();
 });
 </script>
 
@@ -165,13 +181,16 @@ onMounted(() => {
           <input id="title" v-model="form.title" type="text" required />
         </div>
         <div>
-          <label for="category">Category ID</label>
-          <input
+          <label for="category">Category</label>
+          <select
             id="category"
             v-model="form.report_categories_id"
-            type="number"
-            min="1"
-          />
+            required
+          >
+            <option v-for="cat in categories" :key="cat.report_categories_id" :value="cat.report_categories_id">
+              {{ cat.name }}
+            </option>
+          </select>
         </div>
         <div>
           <label for="location">Location</label>

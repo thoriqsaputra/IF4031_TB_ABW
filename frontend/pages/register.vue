@@ -1,4 +1,11 @@
 <script setup>
+import { UserPlusIcon, EnvelopeIcon, LockClosedIcon, UserIcon, BriefcaseIcon } from '@heroicons/vue/24/outline'
+import { SparklesIcon } from '@heroicons/vue/24/solid'
+
+definePageMeta({
+  middleware: 'guest'
+});
+
 const form = reactive({
   name: "",
   email: "",

@@ -1,4 +1,8 @@
 <script setup>
+definePageMeta({
+  middleware: 'auth'
+});
+
 const email = ref("");
 const password = ref("");
 const assignments = ref([]);
@@ -89,13 +93,6 @@ const handleRefresh = () => {
   fetchAssignments();
 };
 
-const handleSignOut = () => {
-  clearToken();
-  assignments.value = [];
-  authStatus.value = "Signed out.";
-  queueStatus.value = "Sign in to view your assignments.";
-};
-
 onMounted(() => {
   loadToken();
   if (token.value) {
@@ -162,9 +159,6 @@ watch(token, (value) => {
         <div class="button-row">
           <button type="button" :disabled="isLoading" @click="handleRefresh">
             {{ isLoading ? "Refreshing..." : "Refresh assignments" }}
-          </button>
-          <button type="button" class="ghost-button" @click="handleSignOut">
-            Sign out
           </button>
         </div>
         <p v-if="error" class="form-message error">{{ error }}</p>

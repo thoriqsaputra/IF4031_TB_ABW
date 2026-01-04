@@ -13,13 +13,31 @@
 
     <div v-else class="dashboard-container">
       <header class="dashboard-header">
-        <h1>Analytics Dashboard</h1>
-        <p v-if="userRole === 'government'">
-          Viewing data for: <strong>{{ userInfo?.department.name }}</strong>
-        </p>
-        <p v-else-if="userRole === 'admin'">
-          Viewing: <strong>All Departments</strong>
-        </p>
+        <div class="header-content">
+          <div>
+            <h1>Analytics Dashboard</h1>
+            <p v-if="userRole === 'government'">
+              Viewing data for: <strong>{{ userInfo?.department.name }}</strong>
+            </p>
+            <p v-else-if="userRole === 'admin'">
+              Viewing: <strong>All Departments</strong>
+            </p>
+          </div>
+          <div class="observability-actions">
+            <a href="http://localhost:9090" target="_blank" class="obs-btn prometheus">
+              <ChartBarIcon class="icon-sm" />
+              <span>Prometheus</span>
+            </a>
+            <a href="http://localhost:3100" target="_blank" class="obs-btn grafana">
+              <PresentationChartLineIcon class="icon-sm" />
+              <span>Grafana</span>
+            </a>
+            <a href="http://localhost:3100/explore" target="_blank" class="obs-btn loki">
+              <DocumentTextIcon class="icon-sm" />
+              <span>Logs</span>
+            </a>
+          </div>
+        </div>
       </header>
 
       <div v-if="isLoading" class="loading-state">
@@ -35,7 +53,9 @@
       <div v-else-if="analyticsData" class="dashboard-content">
         <section class="kpi-section">
           <div class="kpi-card">
-            <div class="kpi-icon total">📊</div>
+            <div class="kpi-icon total">
+              <DocumentDuplicateIcon class="icon-lg" />
+            </div>
             <div class="kpi-content">
               <span class="kpi-label">Total Reports</span>
               <span class="kpi-value">{{ analyticsData.kpis.total }}</span>
@@ -43,7 +63,9 @@
           </div>
 
           <div class="kpi-card">
-            <div class="kpi-icon completed">✓</div>
+            <div class="kpi-icon completed">
+              <CheckCircleIcon class="icon-lg" />
+            </div>
             <div class="kpi-content">
               <span class="kpi-label">Completed</span>
               <span class="kpi-value">{{ analyticsData.kpis.completed }}</span>
@@ -51,7 +73,9 @@
           </div>
 
           <div class="kpi-card">
-            <div class="kpi-icon pending">⏳</div>
+            <div class="kpi-icon pending">
+              <ClockIcon class="icon-lg" />
+            </div>
             <div class="kpi-content">
               <span class="kpi-label">Pending</span>
               <span class="kpi-value">{{ analyticsData.kpis.pending }}</span>
@@ -59,7 +83,9 @@
           </div>
 
           <div class="kpi-card">
-            <div class="kpi-icon progress">🔄</div>
+            <div class="kpi-icon progress">
+              <ArrowPathIcon class="icon-lg" />
+            </div>
             <div class="kpi-content">
               <span class="kpi-label">In Progress</span>
               <span class="kpi-value">{{ analyticsData.kpis.inProgress }}</span>
@@ -87,7 +113,9 @@
               :key="index"
               class="activity-item"
             >
-              <div class="activity-icon">📄</div>
+              <div class="activity-icon">
+                <DocumentTextIcon class="icon-md" />
+              </div>
               <div class="activity-content">
                 <span class="activity-title">{{ activity.title }}</span>
                 <span class="activity-time">{{ formatActivityTime(activity.timestamp) }}</span>
@@ -101,6 +129,20 @@
 </template>
 
 <script setup lang="ts">
+import { 
+  DocumentDuplicateIcon, 
+  CheckCircleIcon, 
+  ClockIcon, 
+  ArrowPathIcon,
+  DocumentTextIcon,
+  ChartBarIcon,
+  PresentationChartLineIcon
+} from '@heroicons/vue/24/outline'
+
+definePageMeta({
+  middleware: 'auth'
+});
+
 import Chart from 'chart.js/auto'
 
 const { token, loadToken } = useAuth()
@@ -240,7 +282,7 @@ watch(() => analyticsData.value, () => {
 <style scoped>
 .dashboard-page {
   min-height: 100vh;
-  background: var(--paper);
+  background: transparent;
   padding: 2rem 1rem;
 }
 
@@ -274,16 +316,76 @@ watch(() => analyticsData.value, () => {
   margin-bottom: 2rem;
 }
 
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
 .dashboard-header h1 {
   font-family: 'Fraunces', serif;
   font-size: 2.5rem;
-  color: var(--ink);
+  color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
 
 .dashboard-header p {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 1.1rem;
+}
+
+.observability-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.obs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-lg);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all var(--transition-base);
+  border: 1px solid transparent;
+}
+
+.obs-btn.prometheus {
+  background: linear-gradient(135deg, #e6572e, #d94727);
+  color: white;
+}
+
+.obs-btn.prometheus:hover {
+  background: linear-gradient(135deg, #d94727, #c03f23);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.obs-btn.grafana {
+  background: linear-gradient(135deg, #f79520, #e67e00);
+  color: white;
+}
+
+.obs-btn.grafana:hover {
+  background: linear-gradient(135deg, #e67e00, #d17100);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.obs-btn.loki {
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: white;
+}
+
+.obs-btn.loki:hover {
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 
 .loading-state, .error-state {
@@ -336,17 +438,29 @@ watch(() => analyticsData.value, () => {
 .kpi-icon {
   width: 60px;
   height: 60px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.75rem;
+  flex-shrink: 0;
 }
 
-.kpi-icon.total { background: rgba(138, 209, 193, 0.2); }
-.kpi-icon.completed { background: rgba(138, 209, 193, 0.3); }
-.kpi-icon.pending { background: rgba(247, 213, 138, 0.3); }
-.kpi-icon.progress { background: rgba(243, 168, 124, 0.3); }
+.kpi-icon.total { 
+  background: linear-gradient(135deg, var(--primary-100), var(--primary-200)); 
+  color: var(--primary-600);
+}
+.kpi-icon.completed { 
+  background: linear-gradient(135deg, var(--success-100), var(--success-200)); 
+  color: var(--success-600);
+}
+.kpi-icon.pending { 
+  background: linear-gradient(135deg, var(--warning-100), var(--warning-200)); 
+  color: var(--warning-600);
+}
+.kpi-icon.progress { 
+  background: linear-gradient(135deg, var(--primary-200), var(--primary-300)); 
+  color: var(--primary-700);
+}
 
 .kpi-content {
   display: flex;
@@ -356,14 +470,14 @@ watch(() => analyticsData.value, () => {
 
 .kpi-label {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .kpi-value {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--text-primary);
   font-family: 'Fraunces', serif;
 }
 
@@ -383,21 +497,21 @@ watch(() => analyticsData.value, () => {
 .chart-card h2 {
   font-family: 'Fraunces', serif;
   font-size: 1.5rem;
-  color: var(--ink);
+  color: var(--text-primary);
   margin-bottom: 1.5rem;
 }
 
 .activity-section {
   background: white;
   padding: 2rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
 }
 
 .activity-section h2 {
   font-family: 'Fraunces', serif;
   font-size: 1.5rem;
-  color: var(--ink);
+  color: var(--text-primary);
   margin-bottom: 1.5rem;
 }
 
@@ -425,11 +539,11 @@ watch(() => analyticsData.value, () => {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(138, 209, 193, 0.2);
+  background: linear-gradient(135deg, var(--primary-100), var(--primary-200));
+  color: var(--primary-600);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
   flex-shrink: 0;
 }
 
@@ -442,12 +556,12 @@ watch(() => analyticsData.value, () => {
 
 .activity-title {
   font-weight: 600;
-  color: var(--ink);
+  color: var(--text-primary);
 }
 
 .activity-time {
   font-size: 0.85rem;
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .btn-primary {

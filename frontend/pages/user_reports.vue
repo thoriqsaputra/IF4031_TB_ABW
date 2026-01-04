@@ -1,4 +1,8 @@
 <script setup>
+definePageMeta({
+  middleware: 'auth'
+});
+
 const query = ref("");
 const reports = ref([]);
 const error = ref("");
