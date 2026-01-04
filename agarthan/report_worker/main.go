@@ -18,10 +18,13 @@ import (
 )
 
 const (
-	reportQueueName        = "report_requests"
-	submissionTopicDefault = "submission.events"
-	maxReconnectAttempts   = 3
-	reconnectBackoff       = 500 * time.Millisecond
+	reportQueueName           = "report_requests"
+	reportResponseQueueName   = "report_response"
+	reportResponseMaxPriority = 10
+	submissionTopicDefault    = "submission.events"
+	reportPublishedTopicDefault = "report.published"
+	maxReconnectAttempts      = 3
+	reconnectBackoff          = 500 * time.Millisecond
 )
 
 var DB *gorm.DB
@@ -50,6 +53,7 @@ func ConnectDB() {
 		&models.ReportCategory{},
 		&models.ReportMedia{},
 		&models.ReportAssignment{},
+		&models.ReportResponse{},
 		&models.Upvote{},
 		&models.Escalation{},
 	)
@@ -79,6 +83,16 @@ func ConnectRabbit() (*amqp.Connection, *amqp.Channel) {
 					false,
 					false,
 					nil,
+				)
+			}
+			if err == nil {
+				_, err = ch.QueueDeclare(
+					reportResponseQueueName,
+					true,
+					false,
+					false,
+					false,
+					amqp.Table{"x-max-priority": reportResponseMaxPriority},
 				)
 			}
 			if err == nil {
@@ -130,6 +144,14 @@ func kafkaTopic() string {
 	return submissionTopicDefault
 }
 
+func kafkaReportPublishedTopic() string {
+	if topic := os.Getenv("KAFKA_REPORT_PUBLISHED_TOPIC"); topic != "" {
+		return topic
+	}
+
+	return reportPublishedTopicDefault
+}
+
 func dialKafkaBroker() (*kafka.Conn, error) {
 	brokers := kafkaBrokers()
 	if len(brokers) == 0 {
@@ -168,10 +190,10 @@ func connectKafkaWithRetry() {
 	log.Fatal("Failed to connect to Kafka after retries:", lastErr)
 }
 
-func newKafkaWriter() *kafka.Writer {
+func newKafkaWriter(topic string) *kafka.Writer {
 	return &kafka.Writer{
 		Addr:         kafka.TCP(kafkaBrokers()...),
-		Topic:        kafkaTopic(),
+		Topic:        topic,
 		RequiredAcks: kafka.RequireOne,
 		Balancer:     &kafka.LeastBytes{},
 	}
@@ -194,38 +216,35 @@ func sendSubmissionEvent(writer *kafka.Writer, event submissionEvent) {
 	}
 }
 
-func main() {
-	ConnectDB()
-
-	conn, ch := ConnectRabbit()
-	defer conn.Close()
-	defer ch.Close()
-
-	connectKafkaWithRetry()
-	kafkaWriter := newKafkaWriter()
-	defer func() {
-		if err := kafkaWriter.Close(); err != nil {
-			log.Printf("Failed to close Kafka writer: %v", err)
-		}
-	}()
-
-	if err := ch.Qos(1, 0, false); err != nil {
-		log.Fatal("Failed to set QoS:", err)
+func sendReportPublishedEvent(writer *kafka.Writer, report models.Report) {
+	publishedAt := report.CreatedAt
+	if publishedAt.IsZero() {
+		publishedAt = time.Now()
 	}
 
-	msgs, err := ch.Consume(
-		reportQueueName,
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
+	event := models.ReportPublishedEvent{
+		ReportID:         report.ReportID,
+		ReportCategoryID: report.ReportCategoryID,
+		PublishedAt:      publishedAt,
+	}
+
+	payload, err := json.Marshal(event)
 	if err != nil {
-		log.Fatal("Failed to register consumer:", err)
+		log.Printf("Failed to serialize report published event: %v", err)
+		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := writer.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
+		log.Printf("Failed to publish report published event: %v", err)
+	} else {
+		log.Printf("Report published event sent (report_id=%d)", report.ReportID)
+	}
+}
+
+func consumeReportRequests(msgs <-chan amqp.Delivery, kafkaWriter *kafka.Writer, reportPublishedWriter *kafka.Writer) {
 	log.Println("Report worker waiting for messages")
 
 	for msg := range msgs {
@@ -256,6 +275,7 @@ func main() {
 			continue
 		}
 
+		sendReportPublishedEvent(reportPublishedWriter, report)
 		sendSubmissionEvent(kafkaWriter, submissionEvent{
 			RequestID: request.RequestID,
 			Status:    "success",
@@ -263,4 +283,121 @@ func main() {
 		})
 		_ = msg.Ack(false)
 	}
+}
+
+func consumeReportResponses(msgs <-chan amqp.Delivery, kafkaWriter *kafka.Writer) {
+	log.Println("Report response worker waiting for messages")
+
+	for msg := range msgs {
+		var request models.ReportResponseRequestMessage
+		if err := json.Unmarshal(msg.Body, &request); err != nil {
+			log.Printf("Invalid report_response payload: %v", err)
+			_ = msg.Reject(false)
+			continue
+		}
+
+		if request.RequestID == "" {
+			log.Printf("Missing request_id in report_response payload")
+			_ = msg.Reject(false)
+			continue
+		}
+
+		response := request.Response
+		if response.ReportID == 0 || response.CreatedBy == 0 || strings.TrimSpace(response.Message) == "" {
+			log.Printf("Incomplete report_response payload (request_id=%s)", request.RequestID)
+			_ = msg.Reject(false)
+			continue
+		}
+
+		if response.CreatedAt.IsZero() {
+			response.CreatedAt = time.Now()
+		}
+		response.ReportResponseID = 0
+
+		if err := DB.Select("report_id").Where("report_id = ?", response.ReportID).First(&models.Report{}).Error; err != nil {
+			log.Printf("Report not found for response (request_id=%s report_id=%d): %v", request.RequestID, response.ReportID, err)
+			sendSubmissionEvent(kafkaWriter, submissionEvent{
+				RequestID: request.RequestID,
+				Status:    "error",
+				Message:   "report not found",
+			})
+			_ = msg.Reject(false)
+			continue
+		}
+
+		if err := DB.Create(&response).Error; err != nil {
+			log.Printf("Failed to store report response (request_id=%s): %v", request.RequestID, err)
+			sendSubmissionEvent(kafkaWriter, submissionEvent{
+				RequestID: request.RequestID,
+				Status:    "error",
+				Message:   err.Error(),
+			})
+			_ = msg.Nack(false, true)
+			continue
+		}
+
+		sendSubmissionEvent(kafkaWriter, submissionEvent{
+			RequestID: request.RequestID,
+			Status:    "success",
+			Message:   "stored",
+		})
+		log.Printf("Report response stored (request_id=%s report_id=%d created_by=%d)", request.RequestID, response.ReportID, response.CreatedBy)
+		_ = msg.Ack(false)
+	}
+}
+
+func main() {
+	ConnectDB()
+
+	conn, ch := ConnectRabbit()
+	defer conn.Close()
+	defer ch.Close()
+
+	connectKafkaWithRetry()
+	kafkaWriter := newKafkaWriter(kafkaTopic())
+	reportPublishedWriter := newKafkaWriter(kafkaReportPublishedTopic())
+	defer func() {
+		if err := kafkaWriter.Close(); err != nil {
+			log.Printf("Failed to close Kafka writer: %v", err)
+		}
+	}()
+	defer func() {
+		if err := reportPublishedWriter.Close(); err != nil {
+			log.Printf("Failed to close report published writer: %v", err)
+		}
+	}()
+
+	if err := ch.Qos(1, 0, false); err != nil {
+		log.Fatal("Failed to set QoS:", err)
+	}
+
+	msgs, err := ch.Consume(
+		reportQueueName,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal("Failed to register consumer:", err)
+	}
+
+	responseMsgs, err := ch.Consume(
+		reportResponseQueueName,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal("Failed to register report_response consumer:", err)
+	}
+
+	go consumeReportResponses(responseMsgs, kafkaWriter)
+
+	consumeReportRequests(msgs, kafkaWriter, reportPublishedWriter)
 }

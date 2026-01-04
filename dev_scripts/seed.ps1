@@ -1,0 +1,1 @@
+python seed_users.py --dsn "host=localhost user=postgres password=postgres dbname=agarthan port=5432 sslmode=disable"

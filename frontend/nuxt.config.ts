@@ -1,5 +1,5 @@
 export default defineNuxtConfig({
-  css: ["~/assets/main.css"],
+  css: ["quill/dist/quill.snow.css", "~/assets/main.css"],
   app: {
     head: {
       title: "Agarthan Reports",

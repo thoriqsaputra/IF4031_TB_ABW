@@ -14,6 +14,7 @@
 
 # Dependency directories
 vendor/
+node_modules/
 
 # Go workspace file
 go.work.sum
@@ -37,6 +38,13 @@ go.work.sum
 # Build output
 bin/
 dist/
+
+# Frontend (Nuxt)
+frontend/.nuxt/
+frontend/.output/
+frontend/.cache/
+frontend/.vite/
+frontend/node_modules/
 
 # Temporary files
 tmp/

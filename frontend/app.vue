@@ -51,6 +51,7 @@ onMounted(() => {
         <NuxtLink to="/feed">Feed</NuxtLink>
         <NuxtLink to="/user_reports">My Reports</NuxtLink>
         <NuxtLink to="/report">Submit Report</NuxtLink>
+        <NuxtLink to="/staff">Staff Desk</NuxtLink>
       </nav>
       <div class="header-actions">
         <NotificationCenter />
