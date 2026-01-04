@@ -324,100 +324,7 @@ func CreateReportResponse(c *fiber.Ctx) error {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
-	} else if user.DepartmentID != 0 || user.RoleID != 0 {
-		isStaff = true
-	}
-
-	priority := uint8(0)
-	if isStaff {
-		priority = uint8(reportResponseHighPriority)
-	}
-
-	requestID := uuid.NewString()
-	response := models.ReportResponse{
-		Message:   payload.Message,
-		CreatedAt: time.Now(),
-		CreatedBy: userID,
-		ReportID:  payload.ReportID,
-	}
-
-	message := models.ReportResponseRequestMessage{
-		RequestID: requestID,
-		Response:  response,
-	}
-
-	body, err := json.Marshal(message)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	if err := RabbitChannel.Publish(
-		"",
-		reportResponseQueueName,
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:  "application/json",
-			DeliveryMode: amqp.Persistent,
-			Priority:     priority,
-			Body:         body,
-		},
-	); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"status":    "created",
-		"report_id": report.ReportID,
-		"message":   "Report created successfully",
-	})
-}
-
-func CreateReportResponse(c *fiber.Ctx) error {
-	var payload reportResponsePayload
-
-	if err := c.BodyParser(&payload); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	payload.Message = strings.TrimSpace(payload.Message)
-	if payload.ReportID == 0 || payload.Message == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "report_id and message are required"})
-	}
-
-	userID, err := userIDFromLocals(c)
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
-	}
-
-	var report models.Report
-	if err := DB.Where("report_id = ?", payload.ReportID).First(&report).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "report not found"})
-		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-	}
-
-	assignedToUser := false
-	if err := DB.Where("report_id = ? AND assigned_to = ?", payload.ReportID, userID).First(&models.ReportAssignment{}).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	} else {
-		assignedToUser = true
-	}
-
-	if report.UserID != userID && !assignedToUser {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
-	}
-
-	isStaff := false
-	var user models.User
-	if err := DB.Select("user_id", "role_id", "department_id").Where("user_id = ?", userID).First(&user).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
-	} else if user.DepartmentID != 0 || user.RoleID != 0 {
+	} else if (user.DepartmentID != nil && *user.DepartmentID != 0) || user.RoleID != 0 {
 		isStaff = true
 	}
 
@@ -473,10 +380,37 @@ func GetReports(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
 	}
 
-	//DB Find should only return reports that are flagged as public or is reported by user
-	if err := DB.Where("is_public = ? OR user_id = ?", true, userID).Find(&reports).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	// Get user role and department for RBAC
+	userRole, ok := c.Locals("role").(string)
+	if !ok {
+		userRole = ""
 	}
+
+	var user models.User
+	if err := DB.Preload("Role").Preload("Department").First(&user, userID).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch user"})
+	}
+
+	// RBAC: Government users can only see reports in their department
+	if userRole == "government" || user.Role.Name == "government" {
+		if user.DepartmentID == nil || *user.DepartmentID == 0 {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "government user must have a department assigned"})
+		}
+		
+		// Get reports that are public AND belong to their department
+		if err := DB.Joins("JOIN report_categories ON reports.report_categories_id = report_categories.report_categories_id").
+			Where("(reports.is_public = ? OR reports.user_id = ?) AND report_categories.department_id = ?", 
+				true, userID, *user.DepartmentID).
+			Find(&reports).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	} else {
+		// Admin and regular users can see all public reports or their own
+		if err := DB.Where("is_public = ? OR user_id = ?", true, userID).Find(&reports).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	
 	return c.JSON(reports)
 }
 
@@ -620,6 +554,89 @@ func GetReportDetails(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(report)
+}
+
+// CreateUpvote allows citizens to upvote public reports
+func CreateUpvote(c *fiber.Ctx) error {
+	userID, err := userIDFromLocals(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+
+	reportID, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil || reportID == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid report id"})
+	}
+
+	// Check if report exists and is public
+	var report models.Report
+	if err := DB.First(&report, reportID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "report not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if !report.IsPublic {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "cannot upvote private reports"})
+	}
+
+	// Check if user already upvoted
+	var existingUpvote models.Upvote
+	if err := DB.Where("user_id = ? AND report_id = ?", userID, reportID).First(&existingUpvote).Error; err == nil {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "you have already upvoted this report"})
+	}
+
+	// Create upvote
+	upvote := models.Upvote{
+		UserID:    userID,
+		ReportID:  uint(reportID),
+		CreatedAt: time.Now(),
+	}
+
+	if err := DB.Create(&upvote).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	// Get total upvote count
+	var count int64
+	DB.Model(&models.Upvote{}).Where("report_id = ?", reportID).Count(&count)
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message":       "upvote created successfully",
+		"upvote_count": count,
+	})
+}
+
+// DeleteUpvote allows citizens to remove their upvote
+func DeleteUpvote(c *fiber.Ctx) error {
+	userID, err := userIDFromLocals(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+
+	reportID, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	if err != nil || reportID == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid report id"})
+	}
+
+	result := DB.Where("user_id = ? AND report_id = ?", userID, reportID).Delete(&models.Upvote{})
+	if result.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": result.Error.Error()})
+	}
+
+	if result.RowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "upvote not found"})
+	}
+
+	// Get total upvote count
+	var count int64
+	DB.Model(&models.Upvote{}).Where("report_id = ?", reportID).Count(&count)
+
+	return c.JSON(fiber.Map{
+		"message":       "upvote removed successfully",
+		"upvote_count": count,
+	})
 }
 
 // GetAnalytics returns analytics data with RBAC filtering
@@ -893,6 +910,25 @@ func AssignReport(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// Mark any existing assignments as reassigned (reassignment scenario)
+	if err := DB.Model(&models.ReportAssignment{}).
+		Where("report_id = ? AND status = ?", report.ReportID, "assigned").
+		Update("status", "reassigned").Error; err != nil {
+		log.Printf("Failed to mark old assignments as reassigned: %v", err)
+	}
+
+	// Create new ReportAssignment record
+	assignment := models.ReportAssignment{
+		ReportID:   report.ReportID,
+		AssignedTo: input.AssignedTo,
+		AssignedAt: time.Now(),
+		Status:     "assigned",
+	}
+	if err := DB.Create(&assignment).Error; err != nil {
+		log.Printf("Failed to create report assignment record: %v", err)
+		// Don't fail the whole operation, but log the error
+	}
+
 	// Publish Kafka event for notification to assigned official
 	var deptID uint
 	if assignedUser.DepartmentID != nil {
@@ -1020,26 +1056,24 @@ func main() {
 	}))
 
 	// Report CRUD
-	app.Post("/reports", middleware.Protected(), CreateReport)
-	app.Post("/report_response", middleware.Protected(), CreateReportResponse)
-	app.Get("/reports", middleware.Protected(), GetReports)
-	app.Get("/reports/assigned", middleware.Protected(), GetAssignedReports)
-	app.Get("/reports/:id", middleware.Protected(), GetReportDetails)
-	app.Get("/reports/:id/status", middleware.Protected(), GetReportStatus)
-	app.Get("/report/:id/status", middleware.Protected(), GetReportStatus)
+	app.Post("/api/reports", middleware.Protected(), CreateReport)
+	app.Post("/api/report_response", middleware.Protected(), CreateReportResponse)
+	app.Get("/api/reports", middleware.Protected(), GetReports)
+	app.Get("/api/reports/assigned", middleware.Protected(), GetAssignedReports)
 	app.Get("/api/reports/:id", middleware.Protected(), GetReportDetails)
+	app.Get("/api/reports/:id/status", middleware.Protected(), GetReportStatus)
+
+	// Upvotes (Citizens only)
+	app.Post("/api/reports/:id/upvote", middleware.Protected(), CreateUpvote)
+	app.Delete("/api/reports/:id/upvote", middleware.Protected(), DeleteUpvote)
 
 	// Report Management (with notifications)
-	app.Patch("/reports/:id/status", middleware.Protected(), UpdateReportStatus)
-	app.Post("/reports/:id/assign", middleware.Protected(), AssignReport)
-	app.Post("/reports/:id/escalate", middleware.Protected(), EscalateReport)
+	app.Patch("/api/reports/:id/status", middleware.Protected(), UpdateReportStatus)
+	app.Post("/api/reports/:id/assign", middleware.Protected(), AssignReport)
+	app.Post("/api/reports/:id/escalate", middleware.Protected(), EscalateReport)
 
 	// Analytics
 	app.Get("/api/analytics", middleware.Protected(), GetAnalytics)
-	app.Get("/api/reports/assigned", middleware.Protected(), GetAssignedReports)
-	app.Get("/api/reports/:id/status", middleware.Protected(), GetReportStatus)
-	app.Get("/api/report/:id/status", middleware.Protected(), GetReportStatus)
-	app.Post("/api/report_response", middleware.Protected(), CreateReportResponse)
 
 	log.Fatal(app.Listen(":3001"))
 }

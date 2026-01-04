@@ -33,7 +33,7 @@ func ConnectDB() {
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
-	DB.AutoMigrate(&models.User{}, &models.Role{}, &models.Department{})
+	DB.AutoMigrate(&models.User{}, &models.Role{}, &models.Department{}, &models.ReportCategory{})
 }
 
 type RegisterInput struct {
@@ -142,6 +142,12 @@ func GetDepartments(c *fiber.Ctx) error {
 	return c.JSON(depts)
 }
 
+func GetCategories(c *fiber.Ctx) error {
+	var categories []models.ReportCategory
+	DB.Order("department_id, report_categories_id").Find(&categories)
+	return c.JSON(categories)
+}
+
 func SeedDatabase() {
 	roles := []models.Role{
 		{RoleID: 1, Name: "citizen"},
@@ -171,7 +177,50 @@ func SeedDatabase() {
 	village := models.Department{DepartmentID: 1, Name: "Kelurahan", ParentID: &parentIDDistrict}
 	DB.FirstOrCreate(&village, models.Department{DepartmentID: 1})
 
-	log.Println("67")
+	// Seed Categories linked to Departments
+	categories := []models.ReportCategory{
+		// Kelurahan (Village) - Department ID: 1
+		{ReportCategoryID: 1, Name: "Kebersihan Lingkungan", DepartmentID: 1},
+		{ReportCategoryID: 2, Name: "Kerusakan Jalan", DepartmentID: 1},
+		{ReportCategoryID: 3, Name: "Lampu Jalan Rusak", DepartmentID: 1},
+		{ReportCategoryID: 4, Name: "Sampah Menumpuk", DepartmentID: 1},
+
+		// Kecamatan (District) - Department ID: 10
+		{ReportCategoryID: 5, Name: "Drainase Tersumbat", DepartmentID: 10},
+		{ReportCategoryID: 6, Name: "Taman Tidak Terawat", DepartmentID: 10},
+		{ReportCategoryID: 7, Name: "Fasilitas Umum Rusak", DepartmentID: 10},
+
+		// Dinas Kota (City) - Department ID: 100
+		{ReportCategoryID: 8, Name: "Macet Lalu Lintas", DepartmentID: 100},
+		{ReportCategoryID: 9, Name: "Polusi Udara", DepartmentID: 100},
+		{ReportCategoryID: 10, Name: "Banjir", DepartmentID: 100},
+		{ReportCategoryID: 11, Name: "Penerangan Jalan Umum", DepartmentID: 100},
+
+		// Dinas Provinsi (Provincial) - Department ID: 1000
+		{ReportCategoryID: 12, Name: "Kerusakan Jalan Provinsi", DepartmentID: 1000},
+		{ReportCategoryID: 13, Name: "Jembatan Rusak", DepartmentID: 1000},
+		{ReportCategoryID: 14, Name: "Transportasi Publik", DepartmentID: 1000},
+		{ReportCategoryID: 15, Name: "Pencemaran Sungai", DepartmentID: 1000},
+
+		// Kementerian Pusat (National) - Department ID: 10000
+		{ReportCategoryID: 16, Name: "Infrastruktur Nasional", DepartmentID: 10000},
+		{ReportCategoryID: 17, Name: "Kebijakan Publik", DepartmentID: 10000},
+		{ReportCategoryID: 18, Name: "Bencana Alam", DepartmentID: 10000},
+		{ReportCategoryID: 19, Name: "Kesehatan Masyarakat", DepartmentID: 10000},
+		{ReportCategoryID: 20, Name: "Pendidikan", DepartmentID: 10000},
+	}
+
+	// Use Updates instead of FirstOrCreate to ensure names are updated
+	for _, category := range categories {
+		DB.Where("report_categories_id = ?", category.ReportCategoryID).
+			Assign(models.ReportCategory{
+				Name:         category.Name,
+				DepartmentID: category.DepartmentID,
+			}).
+			FirstOrCreate(&category)
+	}
+
+	log.Println("Database seeded: roles, departments, and categories")
 }
 
 // example of protected route
@@ -214,6 +263,7 @@ func main() {
 	app.Post("/api/auth/register", Register)
 	app.Post("/api/auth/login", Login)
 	app.Get("/api/departments", GetDepartments)
+	app.Get("/api/categories", GetCategories)
 
 	app.Get("/api/auth/profile", middleware.Protected(), Profile)
 	app.Post("/api/auth/logout", middleware.Protected(), Logout)
