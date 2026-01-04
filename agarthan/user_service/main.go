@@ -62,8 +62,10 @@ func CreateUser(c *fiber.Ctx) error {
 		Email:        input.Email,
 		Password:     input.Password,
 		RoleID:       input.RoleID,
-		DepartmentID: input.DepartmentID,
 		IsActive:     isActive,
+	}
+	if input.DepartmentID > 0 {
+		user.DepartmentID = &input.DepartmentID
 	}
 
 	if err := DB.Create(&user).Error; err != nil {
