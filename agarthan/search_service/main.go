@@ -404,7 +404,10 @@ func handleSearch(c *fiber.Ctx, filters []map[string]interface{}) error {
 }
 
 func userIDFromLocals(c *fiber.Ctx) (uint, error) {
-	raw := c.Locals("userID")
+	raw := c.Locals("user_id")
+	if raw == nil {
+		raw = c.Locals("userID")
+	}
 	switch v := raw.(type) {
 	case float64:
 		if v <= 0 {
